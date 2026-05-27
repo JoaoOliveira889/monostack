@@ -1384,10 +1384,13 @@ func (m Model) renderHelpModal() string {
 	columnCount := 1
 	contentWidth := innerWidth
 	switch {
-	case contentWidth >= 176:
+	case contentWidth >= 140:
 		columnCount = 3
-	case contentWidth >= 108:
+	case contentWidth >= 100:
 		columnCount = 2
+	}
+	if panelHeight >= 28 && columnCount < 3 && contentWidth >= 110 {
+		columnCount++
 	}
 	if columnCount > len(sections) {
 		columnCount = len(sections)

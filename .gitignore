@@ -44,3 +44,7 @@ coverage.html
 idez
 config.json
 subscriptions.json
+
+# IDE configs (personal — not to be committed)
+.clinerules
+.cursorrules
