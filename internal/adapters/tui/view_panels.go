@@ -1354,20 +1354,13 @@ func (m Model) renderHelpModal() string {
 		return strings.Join(lines, "\n")
 	}
 
-	panelWidth := m.width - 24
-	if panelWidth < 48 {
-		panelWidth = m.width - 4
-	}
+	panelWidth := m.width - 8
 	if panelWidth < 48 {
 		panelWidth = 48
 	}
 	if panelWidth > m.width-2 {
 		panelWidth = m.width - 2
 	}
-	if panelWidth < 48 {
-		panelWidth = 48
-	}
-
 	panelHeight := m.height - 4
 	if panelHeight < 20 {
 		panelHeight = 20
@@ -1458,13 +1451,6 @@ func (m Model) renderHelpModal() string {
 		ui.BrandStackStyle.Render("SHORTCUTS"),
 	)
 
-	panelStyle := lipgloss.NewStyle().
-		Border(lipgloss.DoubleBorder()).
-		BorderForeground(lipgloss.Color(ui.ColorHighlight)).
-		Padding(1, 2).
-		Width(panelWidth).
-		Height(panelHeight)
-
 	bodyContent := lipgloss.JoinVertical(lipgloss.Left,
 		lipgloss.NewStyle().Align(lipgloss.Center).Width(innerWidth).Render(title),
 		"",
@@ -1474,6 +1460,14 @@ func (m Model) renderHelpModal() string {
 			lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorSubtle)).Render("Press ? or esc to close"),
 		),
 	)
+
+	panelStyle := lipgloss.NewStyle().
+		Border(lipgloss.DoubleBorder()).
+		BorderForeground(lipgloss.Color(ui.ColorHighlight)).
+		Background(lipgloss.Color(ui.ColorBg)).
+		Padding(1, 2).
+		Width(panelWidth).
+		Height(panelHeight)
 
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
 		panelStyle.Render(bodyContent),
