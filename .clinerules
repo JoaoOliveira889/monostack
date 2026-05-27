@@ -1,0 +1,2 @@
+- Never create comments in Go code. All code written should be clean, readable, and self-explanatory through good naming practices, without the need for inline comments, comment blocks, or docstrings.
+- When making refactors or modifications, ensure you delete any existing comments in the modified code block.

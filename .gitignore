@@ -1,0 +1,46 @@
+# Binaries
+/monostack
+*.test
+
+# GoReleaser output
+dist/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Dependencies
+vendor/
+.env*
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS related
+.DS_Store
+Thumbs.db
+
+# Project specific
+scratch/
+tmp/
+
+# Test & coverage artifacts
+coverage.out
+coverage.html
+*.prof
+
+# Logs
+*.log
+*.tmp
+
+# Snapshots & backups (may contain credentials)
+*snapshot*.yaml
+*snapshot*.yml
+*snapshot*.json
+idez
+config.json
+subscriptions.json
