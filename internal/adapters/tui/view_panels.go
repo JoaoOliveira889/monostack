@@ -1354,24 +1354,11 @@ func (m Model) renderHelpModal() string {
 		return strings.Join(lines, "\n")
 	}
 
-	panelWidth := m.width - 8
-	if panelWidth < 48 {
-		panelWidth = 48
-	}
-	if panelWidth > m.width-2 {
-		panelWidth = m.width - 2
-	}
-	panelHeight := m.height - 4
-	if panelHeight < 20 {
-		panelHeight = 20
-	}
-	if panelHeight > m.height {
-		panelHeight = m.height
-	}
+	panelWidth, panelHeight := clampModalSize(m.width, m.height, 6, 72, 4, 20)
 
 	innerWidth := panelWidth - 6
-	if innerWidth < 40 {
-		innerWidth = 40
+	if innerWidth < 60 {
+		innerWidth = 60
 	}
 
 	columnCount := 1
@@ -1440,9 +1427,9 @@ func (m Model) renderHelpModal() string {
 		columns = append(columns, lipgloss.JoinVertical(lipgloss.Left, columnSections...))
 	}
 
-	content := columns[0]
+	body := columns[0]
 	for i := 1; i < len(columns); i++ {
-		content = lipgloss.JoinHorizontal(lipgloss.Top, content, "    ", columns[i])
+		body = lipgloss.JoinHorizontal(lipgloss.Top, body, "    ", columns[i])
 	}
 
 	title := lipgloss.JoinHorizontal(lipgloss.Bottom,
@@ -1451,25 +1438,42 @@ func (m Model) renderHelpModal() string {
 		ui.BrandStackStyle.Render("SHORTCUTS"),
 	)
 
-	bodyContent := lipgloss.JoinVertical(lipgloss.Left,
+	content := lipgloss.JoinVertical(lipgloss.Left,
 		lipgloss.NewStyle().Align(lipgloss.Center).Width(innerWidth).Render(title),
 		"",
-		content,
+		body,
 		"",
 		lipgloss.NewStyle().Align(lipgloss.Center).Width(innerWidth).Render(
-			lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorSubtle)).Render("Press ? or esc to close"),
+			lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorSubtle)).Render("Press ESC or ctrl+p to close"),
 		),
 	)
 
 	panelStyle := lipgloss.NewStyle().
 		Border(lipgloss.DoubleBorder()).
 		BorderForeground(lipgloss.Color(ui.ColorHighlight)).
-		Background(lipgloss.Color(ui.ColorBg)).
-		Padding(1, 2).
 		Width(panelWidth).
-		Height(panelHeight)
+		Height(panelHeight).
+		Padding(1, 2)
 
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
-		panelStyle.Render(bodyContent),
+		panelStyle.Render(content),
 	)
+}
+
+func clampModalSize(termWidth, termHeight, widthOffset, minWidth, heightOffset, minHeight int) (int, int) {
+	w := termWidth - widthOffset
+	if w < minWidth {
+		w = minWidth
+	}
+	if w > termWidth-2 {
+		w = termWidth - 2
+	}
+	h := termHeight - heightOffset
+	if h < minHeight {
+		h = minHeight
+	}
+	if h > termHeight {
+		h = termHeight
+	}
+	return w, h
 }

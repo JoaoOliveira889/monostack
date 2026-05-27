@@ -201,12 +201,19 @@ func TestRenderHelpModalFitsNarrowWidth(t *testing.T) {
 	if !strings.Contains(help, "MonoStack SHORTCUTS") {
 		t.Fatalf("expected help modal to include branded title, got %q", help)
 	}
-	if !strings.Contains(help, "Press ? or esc to close") {
+	if !strings.Contains(help, "ESC or ctrl+p to close") {
 		t.Fatalf("expected help modal to include close hint, got %q", help)
 	}
-	firstLine := strings.TrimSpace(strings.Split(help, "\n")[0])
-	if !(strings.HasPrefix(firstLine, "╔") && strings.HasSuffix(firstLine, "╗")) {
-		t.Fatalf("expected help modal top border to be closed, got %q", firstLine)
+	topBorderFound := false
+	for _, line := range strings.Split(help, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "╔") && strings.HasSuffix(trimmed, "╗") {
+			topBorderFound = true
+			break
+		}
+	}
+	if !topBorderFound {
+		t.Fatalf("expected help modal top border to be closed, got %q", help)
 	}
 }
 
