@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/viewport"
 	"github.com/charmbracelet/lipgloss"
 
 	"monostack/internal/domain"
@@ -1432,6 +1433,23 @@ func (m Model) renderHelpModal() string {
 		body = lipgloss.JoinHorizontal(lipgloss.Top, body, "    ", columns[i])
 	}
 
+	innerHeight := panelHeight - 6
+	if innerHeight < 12 {
+		innerHeight = 12
+	}
+	vpHeight := innerHeight - 3
+	if vpHeight < 5 {
+		vpHeight = 5
+	}
+	if m.helpViewport.Width != innerWidth || m.helpViewport.Height != vpHeight {
+		m.helpViewport = viewport.New(innerWidth, vpHeight)
+	} else {
+		m.helpViewport.Width = innerWidth
+		m.helpViewport.Height = vpHeight
+	}
+
+	m.helpViewport.SetContent(body)
+
 	title := lipgloss.JoinHorizontal(lipgloss.Bottom,
 		renderBrandWordmark(true),
 		" ",
@@ -1441,7 +1459,7 @@ func (m Model) renderHelpModal() string {
 	content := lipgloss.JoinVertical(lipgloss.Left,
 		lipgloss.NewStyle().Align(lipgloss.Center).Width(innerWidth).Render(title),
 		"",
-		body,
+		m.helpViewport.View(),
 		"",
 		lipgloss.NewStyle().Align(lipgloss.Center).Width(innerWidth).Render(
 			lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorSubtle)).Render("Press ESC or ctrl+p to close"),
@@ -1452,7 +1470,6 @@ func (m Model) renderHelpModal() string {
 		Border(lipgloss.DoubleBorder()).
 		BorderForeground(lipgloss.Color(ui.ColorHighlight)).
 		Width(panelWidth).
-		Height(panelHeight).
 		Padding(1, 2)
 
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,

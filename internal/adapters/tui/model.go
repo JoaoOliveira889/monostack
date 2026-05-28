@@ -212,6 +212,7 @@ type Model struct {
 	commandLogs        []CommandLogEntry
 	commandLogCursor   int
 	logViewport        viewport.Model
+	helpViewport       viewport.Model
 	inspectionTitle    string
 	inspectionSubtitle string
 	inspectionContent  string
@@ -230,6 +231,16 @@ type CommandLogEntry struct {
 	Target string
 	Output string
 	Error  error
+}
+
+func (m *Model) cancelSpecialModes() {
+	m.showHelpModal = false
+	m.showLogsModal = false
+	m.showInspectionModal = false
+	m.showPeekModal = false
+	m.showExportModal = false
+	m.showImportModal = false
+	m.clearSelection()
 }
 
 type styles struct {
@@ -253,7 +264,7 @@ type styles struct {
 	InfoText         lipgloss.Style
 }
 
-var Version = "0.0.1"
+var Version = "0.0.2"
 
 const splashFrameLimit = 20
 

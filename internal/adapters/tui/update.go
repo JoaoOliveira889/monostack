@@ -1189,7 +1189,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		if m.showHelpModal {
-			m.showHelpModal = false
+			switch msg.String() {
+			case "esc":
+				m.showHelpModal = false
+				return m, nil
+			case "up", "k":
+				m.helpViewport.LineUp(3)
+				return m, nil
+			case "down", "j":
+				m.helpViewport.LineDown(3)
+				return m, nil
+			case "ctrl+p", "?":
+				m.showHelpModal = false
+				return m, nil
+			}
 			return m, nil
 		}
 
@@ -1447,7 +1460,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 
 		case msg.String() == "ctrl+p" || msg.String() == "?":
-			m.showHelpModal = true
+			m.showHelpModal = !m.showHelpModal
 			return m, nil
 
 		case key.Matches(msg, keys.CommandLog):
