@@ -32,6 +32,11 @@ type s3BucketCreatedMsg struct {
 	Bucket string
 }
 
+type s3FolderCreatedMsg struct {
+	Bucket string
+	Key    string
+}
+
 type s3ObjectDownloadedMsg struct {
 	DestPath string
 }
@@ -48,6 +53,10 @@ type sqsQueuesLoadedMsg struct {
 
 type sqsQueuePurgedMsg struct {
 	QueueURL string
+}
+
+type sqsQueuesPurgedMsg struct {
+	Count int
 }
 
 type sqsQueueDeletedMsg struct {

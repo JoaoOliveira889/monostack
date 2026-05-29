@@ -44,56 +44,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loading = false
 		m.leftPanelRatio = msg.Config.LeftPanelRatio
 		m.appendCommandLog("config", msg.Config.ServiceName, "configuration loaded", nil)
-
-		m.settingsInputs = make([]textinput.Model, 7)
-		for i := range m.settingsInputs {
-			m.settingsInputs[i] = textinput.New()
-			m.settingsInputs[i].Width = 40
+		if len(m.settingsInputs) == 0 {
+			m.settingsInputs = make([]textinput.Model, 8)
+			for i := range m.settingsInputs {
+				m.settingsInputs[i] = textinput.New()
+				m.settingsInputs[i].Width = 40
+			}
 		}
-
-		m.settingsInputs[0].Placeholder = "Service Name (e.g. MiniStack)"
-		m.settingsInputs[0].SetValue(m.config.ServiceName)
-
-		m.settingsInputs[1].Placeholder = "Endpoint URL (e.g. http://localhost:4566)"
-		m.settingsInputs[1].SetValue(m.config.EndpointURL)
-
-		m.settingsInputs[2].Placeholder = "Region (e.g. us-east-1)"
-		m.settingsInputs[2].SetValue(m.config.Region)
-
-		m.settingsInputs[3].Placeholder = "Access Key ID"
-		m.settingsInputs[3].SetValue(m.config.AccessKeyID)
-
-		m.settingsInputs[4].Placeholder = "Secret Access Key"
-		m.settingsInputs[4].SetValue(m.config.SecretAccessKey)
-		m.settingsInputs[4].EchoMode = textinput.EchoPassword
-		m.settingsInputs[4].EchoCharacter = '•'
-
-		m.settingsInputs[5].Placeholder = "Mock Mode (true/false)"
-		if m.config.UseMock {
-			m.settingsInputs[5].SetValue("true")
-		} else {
-			m.settingsInputs[5].SetValue("false")
-		}
-
-		m.settingsInputs[6].Placeholder = "Snapshot directory or file path"
-		if m.config.SnapshotPath != "" {
-			m.settingsInputs[6].SetValue(m.config.SnapshotPath)
-		} else {
-			m.settingsInputs[6].SetValue(usecase.DefaultSnapshotPath())
-		}
-
+		m.syncSettingsInputsFromConfig()
 		m.settingsEditMode = false
-		for i := range m.settingsInputs {
-			m.settingsInputs[i].Blur()
-		}
-
+		m.ensureActiveTabVisible()
 		return m, m.reloadTabCmd()
 
 	case configSavedMsg:
 		m.config = msg.Config
 		m.leftPanelRatio = msg.Config.LeftPanelRatio
 		m.loading = false
+		m.syncSettingsInputsFromConfig()
 		m.appendCommandLog("config", msg.Config.ServiceName, "configuration saved", nil)
+		m.ensureActiveTabVisible()
 		cmds = []tea.Cmd{m.setStatusMessage("Configuration saved successfully!")}
 		if reload := m.reloadTabCmd(); reload != nil {
 			cmds = append(cmds, reload)
@@ -151,6 +120,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.s3Focus = focusBuckets
 		return m, tea.Batch(m.setStatusMessage(fmt.Sprintf("Bucket \"%s\" created successfully!", msg.Bucket)), m.loadS3BucketsCmd())
 
+	case s3FolderCreatedMsg:
+		m.loading = false
+		m.appendCommandLog("create folder", msg.Bucket+"/"+msg.Key, "folder created", nil)
+		delete(m.s3ObjectsCache, msg.Bucket)
+		m.s3ObjectsLoadedFor = ""
+		if msg.Bucket != "" {
+			return m, tea.Batch(m.setStatusMessage(fmt.Sprintf("Folder \"%s\" created successfully!", msg.Key)), m.loadS3ObjectsCmd(msg.Bucket))
+		}
+		return m, m.setStatusMessage(fmt.Sprintf("Folder \"%s\" created successfully!", msg.Key))
+
 	case s3ObjectDownloadedMsg:
 		m.loading = false
 		m.appendCommandLog("download object", msg.DestPath, "object downloaded", nil)
@@ -179,6 +158,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loading = false
 		m.appendCommandLog("purge queue", msg.QueueURL, "queue purged", nil)
 		return m, tea.Batch(m.setStatusMessage("SQS Queue purged successfully!"), m.loadSQSQueuesCmd())
+
+	case sqsQueuesPurgedMsg:
+		m.loading = false
+		m.appendCommandLog("purge all queues", "SQS", fmt.Sprintf("%d queues purged", msg.Count), nil)
+		return m, tea.Batch(m.setStatusMessage(fmt.Sprintf("Purged %d SQS queues successfully!", msg.Count)), m.loadSQSQueuesCmd())
 
 	case sqsQueueDeletedMsg:
 		m.loading = false
@@ -417,24 +401,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if cfg := msg.Config; cfg != nil {
 			m.config = cfg
 			m.leftPanelRatio = cfg.LeftPanelRatio
-
-			if len(m.settingsInputs) >= 7 {
-				m.settingsInputs[0].SetValue(cfg.ServiceName)
-				m.settingsInputs[1].SetValue(cfg.EndpointURL)
-				m.settingsInputs[2].SetValue(cfg.Region)
-				m.settingsInputs[3].SetValue(cfg.AccessKeyID)
-				m.settingsInputs[4].SetValue(cfg.SecretAccessKey)
-				if cfg.UseMock {
-					m.settingsInputs[5].SetValue("true")
-				} else {
-					m.settingsInputs[5].SetValue("false")
-				}
-				if cfg.SnapshotPath != "" {
-					m.settingsInputs[6].SetValue(cfg.SnapshotPath)
-				} else {
-					m.settingsInputs[6].SetValue(usecase.DefaultSnapshotPath())
-				}
-			}
+			m.syncSettingsInputsFromConfig()
+			m.ensureActiveTabVisible()
 		}
 		m.loading = false
 		m.appendCommandLog("import snapshot", msg.Path, fmt.Sprintf("%d subscriptions restored", msg.SubsCount), nil)
@@ -493,6 +461,33 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			default:
 				var cmd tea.Cmd
 				m.s3CreateInput, cmd = m.s3CreateInput.Update(msg)
+				return m, cmd
+			}
+		}
+
+		if m.showS3CreateFolderModal {
+			switch msg.String() {
+			case "esc":
+				m.showS3CreateFolderModal = false
+				m.s3FolderInput.Blur()
+				m.s3FolderInput.SetValue("")
+				return m, nil
+			case "enter":
+				prefix := strings.TrimSpace(m.s3FolderInput.Value())
+				bucket := m.selectedS3BucketName()
+				m.showS3CreateFolderModal = false
+				m.s3FolderInput.Blur()
+				m.s3FolderInput.SetValue("")
+				if bucket != "" && prefix != "" {
+					m.loading = true
+					delete(m.s3ObjectsCache, bucket)
+					m.s3ObjectsLoadedFor = ""
+					return m, m.createS3FolderCmd(bucket, prefix)
+				}
+				return m, nil
+			default:
+				var cmd tea.Cmd
+				m.s3FolderInput, cmd = m.s3FolderInput.Update(msg)
 				return m, cmd
 			}
 		}
@@ -592,6 +587,33 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			default:
 				var cmd tea.Cmd
 				m.sqsCreateInput, cmd = m.sqsCreateInput.Update(msg)
+				return m, cmd
+			}
+		}
+
+		if m.showSqsPurgeAllConfirm {
+			switch msg.String() {
+			case "esc":
+				m.showSqsPurgeAllConfirm = false
+				m.sqsPurgeAllInput.Blur()
+				m.sqsPurgeAllInput.SetValue("")
+				return m, nil
+			case "enter":
+				if strings.EqualFold(strings.TrimSpace(m.sqsPurgeAllInput.Value()), "purge all") {
+					queueURLs := make([]string, 0, len(m.queues))
+					for _, queue := range m.queues {
+						queueURLs = append(queueURLs, queue.URL)
+					}
+					m.showSqsPurgeAllConfirm = false
+					m.sqsPurgeAllInput.Blur()
+					m.sqsPurgeAllInput.SetValue("")
+					m.loading = true
+					return m, m.purgeSQSQueuesCmd(queueURLs)
+				}
+				return m, m.setErrorMessage("Type purge all to confirm")
+			default:
+				var cmd tea.Cmd
+				m.sqsPurgeAllInput, cmd = m.sqsPurgeAllInput.Update(msg)
 				return m, cmd
 			}
 		}
@@ -905,8 +927,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 				if m.selectedSubIndex < len(m.subscriptions) {
 					subARN := m.subscriptions[m.selectedSubIndex].ARN
+					filterScope := m.subscriptions[m.selectedSubIndex].FilterScope
 					m.loading = true
-					return m, m.updateSNSSubscriptionCmd(subARN, filterPolicy)
+					return m, m.updateSNSSubscriptionCmd(subARN, filterPolicy, filterScope)
 				}
 				return m, nil
 			default:
@@ -1262,26 +1285,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.settingsEditMode {
 
 				switch msg.String() {
-				case "esc", "enter":
-
+				case "esc":
 					m.settingsInputs[m.focusedInput].Blur()
 					m.settingsEditMode = false
-
-					mockVal := m.settingsInputs[5].Value()
-					useMock := mockVal == "true" || mockVal == "1" || mockVal == "yes"
-
-					newCfg := &domain.AWSConfig{
-						ServiceName:     m.settingsInputs[0].Value(),
-						EndpointURL:     m.settingsInputs[1].Value(),
-						Region:          m.settingsInputs[2].Value(),
-						AccessKeyID:     m.settingsInputs[3].Value(),
-						SecretAccessKey: m.settingsInputs[4].Value(),
-						UseMock:         useMock,
-						SnapshotPath:    strings.TrimSpace(m.settingsInputs[6].Value()),
-					}
-					m.config = newCfg
-					_ = m.configUseCase.SaveConfig(newCfg)
+					m.syncSettingsInputsFromConfig()
 					return m, nil
+				case "enter":
+					m.settingsInputs[m.focusedInput].Blur()
+					m.settingsEditMode = false
+					newCfg := m.configFromSettingsInputs()
+					m.loading = true
+					return m, m.saveConfigCmd(newCfg)
 				case "tab":
 					m.settingsInputs[m.focusedInput].Blur()
 					m.focusedInput = (m.focusedInput + 1) % len(m.settingsInputs)
@@ -1301,7 +1315,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 				switch msg.String() {
 				case "enter":
-
 					m.settingsEditMode = true
 					m.settingsInputs[m.focusedInput].Focus()
 					return m, nil
@@ -1312,19 +1325,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.focusedInput = (m.focusedInput - 1 + len(m.settingsInputs)) % len(m.settingsInputs)
 					return m, nil
 				case "s":
-
-					mockVal := m.settingsInputs[5].Value()
-					useMock := mockVal == "true" || mockVal == "1" || mockVal == "yes"
-
-					newCfg := &domain.AWSConfig{
-						ServiceName:     m.settingsInputs[0].Value(),
-						EndpointURL:     m.settingsInputs[1].Value(),
-						Region:          m.settingsInputs[2].Value(),
-						AccessKeyID:     m.settingsInputs[3].Value(),
-						SecretAccessKey: m.settingsInputs[4].Value(),
-						UseMock:         useMock,
-						SnapshotPath:    strings.TrimSpace(m.settingsInputs[6].Value()),
-					}
+					newCfg := m.configFromSettingsInputs()
 					m.loading = true
 					return m, m.saveConfigCmd(newCfg)
 				}
@@ -1468,6 +1469,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.refreshLogViewport()
 			return m, nil
 
+		case msg.String() == "1" || msg.String() == "2" || msg.String() == "3" || msg.String() == "4" || msg.String() == "5":
+			if tabIndex := int(msg.String()[0] - '0'); tabIndex >= 1 && tabIndex <= 5 {
+				if panel, ok := m.panelForTabIndex(tabIndex); ok {
+					return m, m.activatePanel(panel)
+				}
+			}
+
 		case msg.String() == "space":
 			return m, m.toggleSelection()
 
@@ -1479,64 +1487,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		case msg.String() == "<" || msg.String() == ",":
-			m.leftPanelRatio -= 0.05
-			if m.leftPanelRatio < 0.1 {
-				m.leftPanelRatio = 0.1
-			}
-			if m.config != nil {
-				m.config.LeftPanelRatio = m.leftPanelRatio
-				_ = m.configUseCase.SaveConfig(m.config)
+			if m.activeTab != panelConfig {
+				m.setActivePanelRatio(m.leftPanelRatio - 0.05)
+				if m.config != nil {
+					m.config.LeftPanelRatio = m.leftPanelRatio
+					m.loading = true
+					return m, m.saveConfigCmd(m.config)
+				}
 			}
 			return m, nil
 
 		case msg.String() == ">" || msg.String() == ".":
-			m.leftPanelRatio += 0.05
-			if m.leftPanelRatio > 0.9 {
-				m.leftPanelRatio = 0.9
-			}
-			if m.config != nil {
-				m.config.LeftPanelRatio = m.leftPanelRatio
-				_ = m.configUseCase.SaveConfig(m.config)
+			if m.activeTab != panelConfig {
+				m.setActivePanelRatio(m.leftPanelRatio + 0.05)
+				if m.config != nil {
+					m.config.LeftPanelRatio = m.leftPanelRatio
+					m.loading = true
+					return m, m.saveConfigCmd(m.config)
+				}
 			}
 			return m, nil
-
-		case key.Matches(msg, keys.TabS3):
-			m.activeTab = panelS3
-			m.errorMsg = ""
-			m.statusMsg = ""
-			m.clearSelection()
-			if len(m.buckets) > 0 {
-				m.loading = false
-				return m, nil
-			}
-			m.loading = true
-			return m, m.loadS3BucketsCmd()
-
-		case key.Matches(msg, keys.TabSQS):
-			m.activeTab = panelSQS
-			m.loading = true
-			m.errorMsg = ""
-			m.statusMsg = ""
-			m.clearSelection()
-			m.sqsFocus = focusQueues
-			return m, tea.Batch(m.loadSQSQueuesCmd(), m.loadSNSTopicsCmd())
-
-		case key.Matches(msg, keys.TabSNS):
-			m.activeTab = panelSNS
-			m.loading = true
-			m.errorMsg = ""
-			m.statusMsg = ""
-			m.clearSelection()
-			return m, m.loadSNSTopicsCmd()
-
-		case key.Matches(msg, keys.TabSecrets):
-			m.activeTab = panelSecrets
-			m.loading = true
-			m.errorMsg = ""
-			m.statusMsg = ""
-			m.clearSelection()
-			m.secretsFocus = focusSecrets
-			return m, m.loadSecretsCmd()
 
 		case key.Matches(msg, keys.TabConfig):
 			m.activeTab = panelConfig
@@ -1679,11 +1649,35 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 
+		case key.Matches(msg, keys.S3Folder):
+			if m.activeTab == panelS3 && m.s3Focus == focusObjects && len(m.buckets) > 0 {
+				m.showS3CreateFolderModal = true
+				if m.selectedObjectIndex < len(m.objects) {
+					keyStr := m.objects[m.selectedObjectIndex].Key
+					if idx := strings.LastIndex(keyStr, "/"); idx >= 0 {
+						m.s3FolderInput.SetValue(keyStr[:idx+1])
+					} else {
+						m.s3FolderInput.SetValue("")
+					}
+				} else {
+					m.s3FolderInput.SetValue("")
+				}
+				m.s3FolderInput.Focus()
+				return m, nil
+			}
+
 		case key.Matches(msg, keys.SQSPurge):
 			if m.activeTab == panelSQS && len(m.queues) > 0 {
-				qURL := m.queues[m.selectedQueueIndex].URL
 				m.loading = true
-				return m, m.purgeSQSQueueCmd(qURL)
+				return m, m.purgeSQSQueueCmd(m.queues[m.selectedQueueIndex].URL)
+			}
+
+		case key.Matches(msg, keys.SQSPurgeAll):
+			if m.activeTab == panelSQS && len(m.queues) > 0 {
+				m.showSqsPurgeAllConfirm = true
+				m.sqsPurgeAllInput.SetValue("")
+				m.sqsPurgeAllInput.Focus()
+				return m, nil
 			}
 
 		case key.Matches(msg, keys.SQSView):

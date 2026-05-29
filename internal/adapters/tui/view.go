@@ -42,6 +42,12 @@ func (m Model) View() string {
 		)
 	}
 
+	if m.showSqsPurgeAllConfirm {
+		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
+			m.styles.Modal.Render(m.renderSqsPurgeAllConfirmModal()),
+		)
+	}
+
 	if m.showSqsSubDeleteConfirm {
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
 			m.styles.Modal.Render(m.renderSqsSubDeleteConfirmModal()),
@@ -57,6 +63,12 @@ func (m Model) View() string {
 	if m.showS3CreateModal {
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
 			m.styles.Modal.Render(m.renderS3CreateBucketModal()),
+		)
+	}
+
+	if m.showS3CreateFolderModal {
+		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
+			m.styles.Modal.Render(m.renderS3CreateFolderModal()),
 		)
 	}
 
@@ -286,20 +298,14 @@ func (m Model) renderHeaderBrand() string {
 }
 
 func (m Model) renderTabBar() string {
-	tabs := []string{
-		"[1] S3 Explorer",
-		"[2] SQS Queues",
-		"[3] SNS Topics",
-		"[4] Secrets",
-		"[5] Settings",
-	}
-
-	var renderedTabs []string
-	for i, t := range tabs {
-		if int(m.activeTab) == i {
-			renderedTabs = append(renderedTabs, m.styles.ActiveTab.Render(t))
+	visible := m.visiblePanels()
+	renderedTabs := make([]string, 0, len(visible))
+	for i, panel := range visible {
+		tab := m.tabLabel(panel, i+1)
+		if m.activeTab == panel {
+			renderedTabs = append(renderedTabs, m.styles.ActiveTab.Render(tab))
 		} else {
-			renderedTabs = append(renderedTabs, m.styles.InactiveTab.Render(t))
+			renderedTabs = append(renderedTabs, m.styles.InactiveTab.Render(tab))
 		}
 	}
 
@@ -317,12 +323,14 @@ func (m Model) renderFooter() string {
 				m.footerItem("jk", "nav buckets"),
 				m.footerItem("enter", "open"),
 				m.footerItem("c", "create"),
+				m.footerItem("f", "folder"),
 				m.footerItem("u", "upload"),
 			}
 		} else {
 			primary = []string{
 				m.footerItem("jk", "nav files"),
 				m.footerItem("esc", "back"),
+				m.footerItem("f", "folder"),
 				m.footerItem("v", "preview"),
 				m.footerItem("w", "download"),
 				m.footerItem("d", "delete"),
@@ -337,6 +345,7 @@ func (m Model) renderFooter() string {
 				m.footerItem("c", "create"),
 				m.footerItem("s", "send"),
 				m.footerItem("p", "purge"),
+				m.footerItem("P", "purge all"),
 			}
 		} else {
 			primary = []string{

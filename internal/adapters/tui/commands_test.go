@@ -46,6 +46,10 @@ func testCmd(t *testing.T, cmd tea.Cmd, expectedMsgType string) {
 		if expectedMsgType != "s3ObjectDownloadedMsg" {
 			t.Errorf("expected %s, got s3ObjectDownloadedMsg", expectedMsgType)
 		}
+	case s3FolderCreatedMsg:
+		if expectedMsgType != "s3FolderCreatedMsg" {
+			t.Errorf("expected %s, got s3FolderCreatedMsg", expectedMsgType)
+		}
 	case sqsQueuesLoadedMsg:
 		if expectedMsgType != "sqsQueuesLoadedMsg" {
 			t.Errorf("expected %s, got sqsQueuesLoadedMsg", expectedMsgType)
@@ -53,6 +57,10 @@ func testCmd(t *testing.T, cmd tea.Cmd, expectedMsgType string) {
 	case sqsQueuePurgedMsg:
 		if expectedMsgType != "sqsQueuePurgedMsg" {
 			t.Errorf("expected %s, got sqsQueuePurgedMsg", expectedMsgType)
+		}
+	case sqsQueuesPurgedMsg:
+		if expectedMsgType != "sqsQueuesPurgedMsg" {
+			t.Errorf("expected %s, got sqsQueuesPurgedMsg", expectedMsgType)
 		}
 	case sqsMessagesLoadedMsg:
 		if expectedMsgType != "sqsMessagesLoadedMsg" {
@@ -371,5 +379,33 @@ func TestImportSubscriptionsYamlContentCmd_RepaintsExistingSubscriptionScope(t *
 	}
 	if policyUpdated {
 		t.Fatal("did not expect policy update when policy was already correct")
+	}
+}
+
+func TestUpdateSNSSubscriptionCmd_UpdatesPolicyScope(t *testing.T) {
+	sns := &mockSNSManager{
+		SetSubscriptionAttributesFunc: func(ctx context.Context, cfg *domain.AWSConfig, subscriptionARN, attributeName, attributeValue string) error {
+			switch attributeName {
+			case "FilterPolicy":
+				if attributeValue != `{"event_type":["pix_received"]}` {
+					t.Fatalf("unexpected filter policy payload: %s", attributeValue)
+				}
+			case "FilterPolicyScope":
+				if attributeValue != "MessageBody" {
+					t.Fatalf("unexpected filter scope payload: %s", attributeValue)
+				}
+			default:
+				t.Fatalf("unexpected attribute: %s", attributeName)
+			}
+			return nil
+		},
+	}
+	awsUC := usecase.NewAWSUseCase(&mockS3Manager{}, &mockSQSManager{}, sns, &mockSecretsManager{})
+	model := mkModel()
+	model.awsUseCase = awsUC
+
+	msg := model.updateSNSSubscriptionCmd("sub-1", map[string][]string{"event_type": []string{"pix_received"}}, domain.SubscriptionFilterScopeMessageBody)()
+	if _, ok := msg.(snsSubscriptionUpdatedMsg); !ok {
+		t.Fatalf("expected snsSubscriptionUpdatedMsg, got %T", msg)
 	}
 }

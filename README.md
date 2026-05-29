@@ -4,7 +4,7 @@
   <a href="https://github.com/JoaoOliveira889/monostack/releases/latest"><img src="https://img.shields.io/github/v/release/JoaoOliveira889/monostack?color=7aa2f7&label=tag&logo=github&style=flat-square" alt="Latest Tag"></a>
   <a href="https://github.com/JoaoOliveira889/monostack/releases/latest"><img src="https://img.shields.io/github/downloads/JoaoOliveira889/monostack/total?color=9ece6a&label=downloads&logo=github&style=flat-square" alt="Total Downloads"></a>
   <a href="https://goreportcard.com/report/github.com/JoaoOliveira889/monostack"><img src="https://goreportcard.com/badge/github.com/JoaoOliveira889/monostack?style=flat-square" alt="Go Report Card"></a>
-  <a href="https://github.com/JoaoOliveira889/homebrew-tap"><img src="https://img.shields.io/badge/homebrew-v0.0.2-7dcfff?logo=homebrew&style=flat-square" alt="Homebrew Version"></a>
+  <a href="https://github.com/JoaoOliveira889/homebrew-tap"><img src="https://img.shields.io/badge/homebrew-v0.0.3-7dcfff?logo=homebrew&style=flat-square" alt="Homebrew Version"></a>
 </p>
 
 **Multi-service AWS dashboard for your terminal.** A TUI tool that connects to AWS (or LocalStack) and gives you a panoramic view of S3 buckets, SQS queues, SNS topics, and Secrets Manager — with one-key actions for common workflows and confirmation guards for every mutating command.
@@ -12,6 +12,17 @@
 ![MonoStack Dashboard](img/background.png)
 
 Built with [Bubble Tea](https://github.com/charmbracelet/bubbletea), [Lip Gloss](https://github.com/charmbracelet/lipgloss), and [Bubbles](https://github.com/charmbracelet/bubbles).
+
+---
+
+## Feature Cards
+
+| S3 Explorer | SQS Queues | SNS Topics |
+|---|---|---|
+| Split-panel browsing for buckets and objects, with downloads, uploads, presigned URLs, and destructive actions behind confirmations. | Live queue counts with peek, send, purge, create, delete, and SNS route context. | Topic inspection, publishes, subscriptions, and YAML import for `SNS → SQS` routing. |
+| Secrets Manager | Configuration Profiles | Snapshots & Logs |
+|---|---|---|
+| Secret metadata, version history, masked values, create/update/restore flows, and safe deletion. | Persistent profiles for endpoints, credentials, mock mode, enabled services, and panel preferences. | Snapshot export/import plus a command log for reviewing AWS actions and raw output. |
 
 ---
 
@@ -31,6 +42,7 @@ For detailed guides, configuration options, and troubleshooting, visit our **[Wi
 - **SNS Topics**: List topics, inspect routes, publish messages, and manage subscriptions with filter policies. Import topic-scoped YAML subscription definitions for `SNS → SQS` routing.
 - **Secrets Manager**: List, inspect, create, update, version, restore, and delete secrets with masked values until explicitly revealed.
 - **Configuration Profiles**: Save and switch between AWS connection profiles — LocalStack/MiniStack endpoints, real AWS via SDK credential chain, or Mock Mode for offline testing.
+- **Panel Layout Persistence**: Each service remembers its own split ratio, and new or re-enabled panels open at `50/50` until you resize them.
 - **LocalStack Support**: Full support for local AWS simulation via configurable endpoints.
 - **Tokyo Night Theme**: A beautiful, dark theme crafted with Lip Gloss for maximum readability.
 - **Snapshot Export/Import**: Export your entire environment (queues, topics, subscriptions, secrets, S3 buckets) to a YAML snapshot and restore it later.
@@ -77,13 +89,15 @@ go install github.com/JoaoOliveira889/monostack/cmd/monostack@latest
 
 > Requires Go 1.26.3 or later.
 
-### Option 4 — Build from source
+### Option 4 — Build locally and keep it on your PATH
 
 ```bash
 git clone https://github.com/JoaoOliveira889/monostack.git
 cd monostack
-go build -o monostack ./cmd/monostack
+make install-local
 ```
+
+This builds the current checkout into `~/bin/monostack`. Add `export PATH="$HOME/bin:$PATH"` once if needed, then rerun `make install-local` whenever you pull updates.
 
 ---
 
@@ -132,6 +146,7 @@ monostack
 | `d` | Download file |
 | `x` / `Delete` | Delete file or bucket |
 | `c` | Create bucket |
+| `f` | Create folder prefix |
 
 ### SQS Queues
 
@@ -142,6 +157,7 @@ monostack
 | `v` | Peek messages |
 | `s` | Send message |
 | `p` | Purge queue |
+| `P` | Purge all loaded queues |
 | `c` | Create queue |
 | `x` / `Delete` | Delete queue |
 
@@ -175,6 +191,8 @@ monostack
 | `Tab` | Next field |
 | `Shift+Tab` | Previous field |
 | `s` | Save profile |
+
+The Settings panel also includes an `Enabled Services` field. Set it to a comma-separated list like `s3,sqs,sns,secrets` to hide unused panels and stop reloading them. Each service panel keeps its own split ratio, and new or re-enabled panels open at `50/50` until the user resizes them.
 
 Mutating actions prompt for confirmation before they run.
 

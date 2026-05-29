@@ -1,6 +1,7 @@
 package aws
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -144,6 +145,36 @@ func (a *S3Adapter) CreateBucket(ctx context.Context, cfg *domain.AWSConfig, nam
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create bucket: %w", err)
+	}
+	return nil
+}
+
+func (a *S3Adapter) CreateFolder(ctx context.Context, cfg *domain.AWSConfig, bucket string, key string) error {
+	if cfg.UseMock {
+		return nil
+	}
+
+	trimmedKey := strings.TrimSpace(key)
+	if trimmedKey == "" {
+		return fmt.Errorf("folder key is required")
+	}
+	if !strings.HasSuffix(trimmedKey, "/") {
+		trimmedKey += "/"
+	}
+
+	awsCfg, err := GetSDKConfig(ctx, cfg)
+	if err != nil {
+		return fmt.Errorf("failed to load AWS config: %w", err)
+	}
+
+	client := s3.NewFromConfig(awsCfg)
+	_, err = client.PutObject(ctx, &s3.PutObjectInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String(trimmedKey),
+		Body:   bytes.NewReader(nil),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create folder: %w", err)
 	}
 	return nil
 }

@@ -89,6 +89,9 @@ type Model struct {
 	showS3CreateModal bool
 	s3CreateInput     textinput.Model
 
+	showS3CreateFolderModal bool
+	s3FolderInput           textinput.Model
+
 	showS3UploadModal bool
 	s3UploadPathInput textinput.Model
 	s3UploadKeyInput  textinput.Model
@@ -106,6 +109,9 @@ type Model struct {
 	showSqsConfirmDelete bool
 	sqsDeleteQueueURL    string
 	sqsDeleteQueueName   string
+
+	showSqsPurgeAllConfirm bool
+	sqsPurgeAllInput       textinput.Model
 
 	showSqsCreateModal bool
 	sqsCreateInput     textinput.Model
@@ -392,9 +398,17 @@ func NewModel(awsUseCase *usecase.AWSUseCase, configUseCase *usecase.ConfigUseCa
 	s3UploadKey.Placeholder = "folder/file.png"
 	s3UploadKey.Width = 56
 
+	s3FolderInput := textinput.New()
+	s3FolderInput.Placeholder = "reports/2026/"
+	s3FolderInput.Width = 56
+
 	sqsCInput := textinput.New()
 	sqsCInput.Placeholder = "queue-name"
 	sqsCInput.Width = 50
+
+	sqsPurgeAllInput := textinput.New()
+	sqsPurgeAllInput.Placeholder = "purge all"
+	sqsPurgeAllInput.Width = 24
 
 	subEventInput := textinput.New()
 	subEventInput.Placeholder = "pix_received, pix_sent (or leave empty for all)"
@@ -443,7 +457,7 @@ func NewModel(awsUseCase *usecase.AWSUseCase, configUseCase *usecase.ConfigUseCa
 	importInput.Placeholder = usecase.DefaultSnapshotPath()
 	importInput.Width = 50
 
-	settingsInputs := make([]textinput.Model, 7)
+	settingsInputs := make([]textinput.Model, 8)
 	for i := range settingsInputs {
 		settingsInputs[i] = textinput.New()
 		settingsInputs[i].Width = 40
@@ -464,7 +478,9 @@ func NewModel(awsUseCase *usecase.AWSUseCase, configUseCase *usecase.ConfigUseCa
 		s3CreateInput:           s3CInput,
 		s3UploadPathInput:       s3UploadPath,
 		s3UploadKeyInput:        s3UploadKey,
+		s3FolderInput:           s3FolderInput,
 		sqsCreateInput:          sqsCInput,
+		sqsPurgeAllInput:        sqsPurgeAllInput,
 		snsSimpleSubEventInput:  subEventInput,
 		snsSubEditInput:         subEditInput,
 		snsYamlImportTextarea:   yamlTA,
@@ -479,7 +495,7 @@ func NewModel(awsUseCase *usecase.AWSUseCase, configUseCase *usecase.ConfigUseCa
 		sqsFocus:                focusQueues,
 		secretsFocus:            focusSecrets,
 		loading:                 true,
-		leftPanelRatio:          0.3,
+		leftPanelRatio:          0.5,
 		showHelpModal:           false,
 		showLogsModal:           false,
 		showInspectionModal:     false,

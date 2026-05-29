@@ -31,6 +31,7 @@
 | `d` | Download file to `~/Downloads/monostack/` |
 | `x` / `Delete` | Delete file or bucket |
 | `c` | Create bucket |
+| `f` | Create folder prefix |
 | `u` | Upload object |
 
 ## SQS Queues
@@ -42,6 +43,7 @@
 | `v` | Peek messages |
 | `s` | Send message |
 | `p` | Purge queue |
+| `P` | Purge all loaded queues |
 | `c` | Create queue |
 | `x` / `Delete` | Delete queue |
 

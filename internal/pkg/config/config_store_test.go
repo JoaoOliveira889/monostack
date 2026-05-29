@@ -19,13 +19,17 @@ func TestFileConfigStore_LoadSave(t *testing.T) {
 	store := &FileConfigStore{filePath: filePath}
 
 	original := &domain.AWSConfig{
-		ServiceName:    "test-profile",
-		EndpointURL:    "http://localhost:4566",
-		Region:         "us-east-1",
-		AccessKeyID:    "test-key",
+		ServiceName:     "test-profile",
+		EndpointURL:     "http://localhost:4566",
+		Region:          "us-east-1",
+		AccessKeyID:     "test-key",
 		SecretAccessKey: "test-secret",
-		UseMock:        true,
-		LeftPanelRatio: 0.4,
+		UseMock:         true,
+		LeftPanelRatio:  0.4,
+		PanelRatios: map[string]float64{
+			domain.ServiceS3:      0.6,
+			domain.ServiceSecrets: 0.45,
+		},
 	}
 
 	if err := store.Save(original); err != nil {
@@ -48,6 +52,12 @@ func TestFileConfigStore_LoadSave(t *testing.T) {
 	}
 	if loaded.UseMock != original.UseMock {
 		t.Errorf("expected UseMock %v, got %v", original.UseMock, loaded.UseMock)
+	}
+	if len(loaded.EnabledServices) == 0 {
+		t.Error("expected enabled services in loaded config")
+	}
+	if loaded.PanelRatios[domain.ServiceS3] != 0.6 {
+		t.Fatalf("expected S3 panel ratio 0.6, got %f", loaded.PanelRatios[domain.ServiceS3])
 	}
 }
 
@@ -94,9 +104,15 @@ func TestFileConfigStore_LoadDefaultOnMissing(t *testing.T) {
 	if cfg.ServiceName == "" {
 		t.Error("expected non-empty ServiceName in default config")
 	}
+	if len(cfg.EnabledServices) == 0 {
+		t.Error("expected default enabled services to be populated")
+	}
+	if cfg.LeftPanelRatio != 0.5 {
+		t.Errorf("expected default LeftPanelRatio 0.5, got %f", cfg.LeftPanelRatio)
+	}
 }
 
-func TestFileConfigStore_LeftPanelRatioClamp(t *testing.T) {
+func TestFileConfigStore_InvalidPanelRatioFallsBackToDefault(t *testing.T) {
 	dir, err := os.MkdirTemp("", "monostack-clamp-test")
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
@@ -106,7 +122,12 @@ func TestFileConfigStore_LeftPanelRatioClamp(t *testing.T) {
 	filePath := filepath.Join(dir, "config.json")
 	store := &FileConfigStore{filePath: filePath}
 
-	original := &domain.AWSConfig{LeftPanelRatio: 0.99}
+	original := &domain.AWSConfig{
+		LeftPanelRatio: 0.99,
+		PanelRatios: map[string]float64{
+			domain.ServiceSecrets: 0.99,
+		},
+	}
 	if err := store.Save(original); err != nil {
 		t.Fatalf("Save failed: %v", err)
 	}
@@ -116,8 +137,11 @@ func TestFileConfigStore_LeftPanelRatioClamp(t *testing.T) {
 		t.Fatalf("Load failed: %v", err)
 	}
 
-	if loaded.LeftPanelRatio != 0.3 {
-		t.Errorf("expected clamped LeftPanelRatio 0.3, got %f", loaded.LeftPanelRatio)
+	if loaded.LeftPanelRatio != 0.5 {
+		t.Errorf("expected clamped LeftPanelRatio 0.5, got %f", loaded.LeftPanelRatio)
+	}
+	if loaded.PanelRatios[domain.ServiceSecrets] != 0.5 {
+		t.Errorf("expected clamped secrets panel ratio 0.5, got %f", loaded.PanelRatios[domain.ServiceSecrets])
 	}
 }
 

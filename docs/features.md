@@ -52,6 +52,14 @@ Save and switch between AWS connection profiles:
 - Mock mode for offline testing
 - Persistent JSON config at `~/.config/monostack/config.json` with `0600` permissions
 
+## Panel Layout Persistence
+
+Each service panel remembers its own split ratio independently:
+- New or re-enabled service panels open at `50/50`
+- Resizing one panel only updates that service's stored ratio
+- Saving Settings preserves the existing per-panel layout preferences
+- The Secrets panel now returns with its own last-used split instead of borrowing a global ratio
+
 ## Mock Mode
 
 Run entirely offline with simulated AWS responses. Useful for:

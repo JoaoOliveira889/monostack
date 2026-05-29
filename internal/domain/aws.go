@@ -23,6 +23,7 @@ type S3Manager interface {
 	DeleteObject(ctx context.Context, cfg *AWSConfig, bucket string, key string) error
 	DeleteBucket(ctx context.Context, cfg *AWSConfig, bucket string) error
 	CreateBucket(ctx context.Context, cfg *AWSConfig, name string) error
+	CreateFolder(ctx context.Context, cfg *AWSConfig, bucket string, key string) error
 	UploadObject(ctx context.Context, cfg *AWSConfig, bucket string, key string, filePath string) error
 	GetPresignedURL(ctx context.Context, cfg *AWSConfig, bucket string, key string) (string, error)
 	DownloadObject(ctx context.Context, cfg *AWSConfig, bucket string, key string, destPath string) error

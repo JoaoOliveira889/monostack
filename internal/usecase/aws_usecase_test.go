@@ -202,6 +202,27 @@ func TestAWSUseCase_CreateS3Bucket(t *testing.T) {
 	}
 }
 
+func TestAWSUseCase_CreateS3Folder(t *testing.T) {
+	var called bool
+	s3 := &mockS3Manager{
+		CreateFolderFunc: func(ctx context.Context, cfg *domain.AWSConfig, bucket, key string) error {
+			called = true
+			if bucket != "assets" || key != "reports/2026" {
+				t.Fatalf("unexpected folder args: bucket=%q key=%q", bucket, key)
+			}
+			return nil
+		},
+	}
+
+	uc := NewAWSUseCase(s3, &mockSQSManager{}, &mockSNSManager{}, &mockSecretsManager{})
+	if err := uc.CreateS3Folder(context.Background(), &domain.AWSConfig{}, "assets", "reports/2026"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !called {
+		t.Error("expected CreateFolder to be called")
+	}
+}
+
 func TestAWSUseCase_CreateSQSQueue(t *testing.T) {
 	var called bool
 	sqs := &mockSQSManager{
@@ -301,5 +322,24 @@ func TestAWSUseCase_CreateSNSSubscription_RejectsTopicToTopic(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "not supported") {
 		t.Fatalf("expected unsupported error, got %v", err)
+	}
+}
+
+func TestAWSUseCase_PurgeSQSQueues(t *testing.T) {
+	var purged []string
+	sqs := &mockSQSManager{
+		PurgeQueueFunc: func(ctx context.Context, cfg *domain.AWSConfig, queueURL string) error {
+			purged = append(purged, queueURL)
+			return nil
+		},
+	}
+
+	uc := NewAWSUseCase(&mockS3Manager{}, sqs, &mockSNSManager{}, &mockSecretsManager{})
+	err := uc.PurgeSQSQueues(context.Background(), &domain.AWSConfig{}, []string{"url-1", "url-2"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(purged) != 2 {
+		t.Fatalf("expected 2 purged queues, got %v", purged)
 	}
 }

@@ -29,8 +29,8 @@ func TestNewModel_InitialState(t *testing.T) {
 	if m.activeTab != panelS3 {
 		t.Errorf("expected activeTab panelS3, got %v", m.activeTab)
 	}
-	if m.leftPanelRatio != 0.3 {
-		t.Errorf("expected leftPanelRatio 0.3, got %f", m.leftPanelRatio)
+	if m.leftPanelRatio != 0.5 {
+		t.Errorf("expected leftPanelRatio 0.5, got %f", m.leftPanelRatio)
 	}
 	if m.loading != true {
 		t.Error("expected loading to be true initially")
@@ -113,6 +113,37 @@ func TestRenderFooter_ShowsVersionAndHelpShortcut(t *testing.T) {
 	}
 	if !strings.Contains(footer, "? help") {
 		t.Fatalf("footer should advertise help shortcut: %q", footer)
+	}
+}
+
+func TestModel_PanelRatioDefaultsAndOverrides(t *testing.T) {
+	m := mkModel()
+
+	if got := m.panelRatioFor(panelSecrets); got != 0.5 {
+		t.Fatalf("expected default secrets panel ratio 0.5, got %f", got)
+	}
+
+	m.config = &domain.AWSConfig{
+		LeftPanelRatio: 0.3,
+		PanelRatios: map[string]float64{
+			domain.ServiceSecrets: 0.65,
+		},
+	}
+	m.activeTab = panelSecrets
+	if got := m.panelRatioFor(panelSecrets); got != 0.65 {
+		t.Fatalf("expected secrets panel ratio 0.65, got %f", got)
+	}
+
+	m.activeTab = panelSQS
+	if got := m.panelRatioFor(panelSQS); got != 0.5 {
+		t.Fatalf("expected unset SQS panel ratio to default to 0.5, got %f", got)
+	}
+
+	m.activeTab = panelS3
+	m.config.PanelRatios = nil
+	m.leftPanelRatio = 0.3
+	if got := m.panelRatioFor(panelS3); got != 0.5 {
+		t.Fatalf("expected unset panel ratio to fall back to 0.5, got %f", got)
 	}
 }
 
@@ -223,5 +254,35 @@ func TestRenderTitledPanelActiveDoesNotFillBodyBackground(t *testing.T) {
 	panel := m.renderTitledPanel(40, 10, "Title", "body", true, lipgloss.Color("#7aa2f7"))
 	if strings.Contains(panel, ui.ColorSelected) {
 		t.Fatalf("expected active panel not to use selected background fill, got %q", panel)
+	}
+}
+
+func TestVisiblePanelsRespectEnabledServices(t *testing.T) {
+	m := mkModel()
+	m.config = &domain.AWSConfig{EnabledServices: []string{domain.ServiceSQS, domain.ServiceSecrets}}
+
+	panels := m.visiblePanels()
+	if len(panels) != 3 {
+		t.Fatalf("expected 3 visible panels, got %v", panels)
+	}
+	if panels[0] != panelSQS || panels[1] != panelSecrets || panels[2] != panelConfig {
+		t.Fatalf("unexpected panel order: %v", panels)
+	}
+}
+
+func TestPanelForTabIndexUsesVisibleOrder(t *testing.T) {
+	m := mkModel()
+	m.config = &domain.AWSConfig{EnabledServices: []string{domain.ServiceSNS}}
+
+	panel, ok := m.panelForTabIndex(1)
+	if !ok || panel != panelSNS {
+		t.Fatalf("expected first visible panel to be SNS, got %v %v", panel, ok)
+	}
+	if _, ok := m.panelForTabIndex(2); ok {
+		t.Fatal("expected second visible panel to be unavailable")
+	}
+	panel, ok = m.panelForTabIndex(5)
+	if !ok || panel != panelConfig {
+		t.Fatalf("expected tab 5 to open settings, got %v %v", panel, ok)
 	}
 }

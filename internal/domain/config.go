@@ -1,14 +1,71 @@
 package domain
 
+import "strings"
+
 type AWSConfig struct {
-	ServiceName     string  `json:"service_name"`
-	EndpointURL     string  `json:"endpoint_url"`
-	Region          string  `json:"region"`
-	AccessKeyID     string  `json:"access_key_id"`
-	SecretAccessKey string  `json:"secret_access_key"`
-	UseMock         bool    `json:"use_mock"`
-	LeftPanelRatio  float64 `json:"left_panel_ratio"`
-	SnapshotPath    string  `json:"snapshot_path,omitempty"`
+	ServiceName     string             `json:"service_name"`
+	EndpointURL     string             `json:"endpoint_url"`
+	Region          string             `json:"region"`
+	AccessKeyID     string             `json:"access_key_id"`
+	SecretAccessKey string             `json:"secret_access_key"`
+	UseMock         bool               `json:"use_mock"`
+	LeftPanelRatio  float64            `json:"left_panel_ratio"`
+	PanelRatios     map[string]float64 `json:"panel_ratios,omitempty"`
+	EnabledServices []string           `json:"enabled_services,omitempty"`
+	SnapshotPath    string             `json:"snapshot_path,omitempty"`
+}
+
+const (
+	ServiceS3      = "s3"
+	ServiceSQS     = "sqs"
+	ServiceSNS     = "sns"
+	ServiceSecrets = "secrets"
+)
+
+func DefaultEnabledServices() []string {
+	return []string{ServiceS3, ServiceSQS, ServiceSNS, ServiceSecrets}
+}
+
+func NormalizeEnabledServices(values []string) []string {
+	allowed := map[string]struct{}{
+		ServiceS3:      {},
+		ServiceSQS:     {},
+		ServiceSNS:     {},
+		ServiceSecrets: {},
+	}
+
+	ordered := make([]string, 0, len(allowed))
+	seen := map[string]struct{}{}
+	for _, candidate := range values {
+		value := strings.ToLower(strings.TrimSpace(candidate))
+		if value == "" {
+			continue
+		}
+		if _, ok := allowed[value]; !ok {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		ordered = append(ordered, value)
+	}
+
+	if len(ordered) == 0 {
+		return DefaultEnabledServices()
+	}
+
+	return ordered
+}
+
+func ServiceEnabled(values []string, service string) bool {
+	service = strings.ToLower(strings.TrimSpace(service))
+	for _, value := range values {
+		if strings.EqualFold(value, service) {
+			return true
+		}
+	}
+	return false
 }
 
 type ConfigStore interface {

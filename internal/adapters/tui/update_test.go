@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 
 	"monostack/internal/domain"
@@ -34,7 +35,11 @@ func TestUpdate_ConfigLoaded(t *testing.T) {
 		EndpointURL:    "http://localhost:4566",
 		Region:         "us-east-1",
 		UseMock:        true,
-		LeftPanelRatio: 0.5,
+		LeftPanelRatio: 0.3,
+		PanelRatios: map[string]float64{
+			domain.ServiceS3:      0.6,
+			domain.ServiceSecrets: 0.4,
+		},
 	}
 	msg := configLoadedMsg{Config: cfg}
 	result, _ := m.Update(msg)
@@ -48,8 +53,85 @@ func TestUpdate_ConfigLoaded(t *testing.T) {
 	if model.config.ServiceName != "test" {
 		t.Errorf("expected ServiceName 'test', got %q", model.config.ServiceName)
 	}
+	if model.leftPanelRatio != 0.6 {
+		t.Errorf("expected leftPanelRatio to sync from active panel, got %f", model.leftPanelRatio)
+	}
 	if model.loading {
 		t.Error("expected loading to be false after config loaded")
+	}
+}
+
+func TestUpdate_ResizePersistsActivePanelRatio(t *testing.T) {
+	m := mkModel()
+	m.config = &domain.AWSConfig{
+		LeftPanelRatio: 0.5,
+		PanelRatios: map[string]float64{
+			domain.ServiceS3:      0.4,
+			domain.ServiceSecrets: 0.6,
+		},
+	}
+	m.activeTab = panelSecrets
+	m.leftPanelRatio = 0.6
+
+	result, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'>'}})
+	model, ok := result.(Model)
+	if !ok {
+		t.Fatalf("expected Model, got %T", result)
+	}
+	if cmd == nil {
+		t.Fatal("expected resize to persist config")
+	}
+	if model.leftPanelRatio != 0.65 {
+		t.Fatalf("expected secrets ratio to increase to 0.65, got %f", model.leftPanelRatio)
+	}
+	if model.config.PanelRatios[domain.ServiceSecrets] != 0.65 {
+		t.Fatalf("expected secrets panel ratio to be persisted, got %f", model.config.PanelRatios[domain.ServiceSecrets])
+	}
+	if model.config.PanelRatios[domain.ServiceS3] != 0.4 {
+		t.Fatalf("expected S3 panel ratio to remain unchanged, got %f", model.config.PanelRatios[domain.ServiceS3])
+	}
+
+	result, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'1'}})
+	model, ok = result.(Model)
+	if !ok {
+		t.Fatalf("expected Model, got %T", result)
+	}
+	if model.activeTab != panelS3 {
+		t.Fatalf("expected tab switch to S3, got %v", model.activeTab)
+	}
+	if model.leftPanelRatio != 0.4 {
+		t.Fatalf("expected S3 ratio to restore to 0.4, got %f", model.leftPanelRatio)
+	}
+}
+
+func TestConfigFromSettingsInputsPreservesPanelRatios(t *testing.T) {
+	m := mkModel()
+	m.config = &domain.AWSConfig{
+		LeftPanelRatio: 0.6,
+		PanelRatios: map[string]float64{
+			domain.ServiceSecrets: 0.6,
+		},
+	}
+	m.leftPanelRatio = 0.6
+	m.settingsInputs = make([]textinput.Model, 8)
+	for i := range m.settingsInputs {
+		m.settingsInputs[i] = textinput.New()
+	}
+	m.settingsInputs[0].SetValue("MiniStack")
+	m.settingsInputs[1].SetValue("http://localhost:4566")
+	m.settingsInputs[2].SetValue("us-east-1")
+	m.settingsInputs[3].SetValue("key")
+	m.settingsInputs[4].SetValue("secret")
+	m.settingsInputs[5].SetValue("true")
+	m.settingsInputs[6].SetValue("/tmp/monostack")
+	m.settingsInputs[7].SetValue("s3,sqs,sns,secrets")
+
+	cfg := m.configFromSettingsInputs()
+	if cfg.LeftPanelRatio != 0.6 {
+		t.Fatalf("expected left panel ratio to be preserved, got %f", cfg.LeftPanelRatio)
+	}
+	if cfg.PanelRatios[domain.ServiceSecrets] != 0.6 {
+		t.Fatalf("expected panel ratios to be preserved, got %f", cfg.PanelRatios[domain.ServiceSecrets])
 	}
 }
 
@@ -291,8 +373,8 @@ func TestUpdate_SecretListUsesExactName(t *testing.T) {
 	if strings.Contains(view, "> secret-dev-webapi-tenants-78422e") {
 		t.Fatalf("expected ARN suffix not to be duplicated in list line, got %q", view)
 	}
-	if strings.Contains(view, "CorpX-Tenant-Secret") {
-		t.Fatalf("expected description to be hidden, got %q", view)
+	if !strings.Contains(view, "Description: CorpX-Tenant-Secret") {
+		t.Fatalf("expected description metadata to be visible, got %q", view)
 	}
 	if strings.Contains(view, "Secret Value") {
 		t.Fatalf("expected main details panel not to render secret value preview, got %q", view)
@@ -642,6 +724,44 @@ func TestUpdate_S3CreateHandling(t *testing.T) {
 	}
 }
 
+func TestUpdate_S3FolderCreateHandling(t *testing.T) {
+	m := mkModel()
+	m.activeTab = panelS3
+	m.s3Focus = focusObjects
+	m.buckets = []domain.S3Bucket{{Name: "assets"}}
+	m.objects = []domain.S3Object{{Key: "reports/2026/invoice.json"}}
+	m.selectedBucketIndex = 0
+	m.selectedObjectIndex = 0
+
+	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}})
+	model, ok := result.(Model)
+	if !ok {
+		t.Fatalf("expected Model, got %T", result)
+	}
+	if !model.showS3CreateFolderModal {
+		t.Fatal("expected showS3CreateFolderModal to be true")
+	}
+	if model.s3FolderInput.Value() != "reports/2026/" {
+		t.Fatalf("expected folder input to be prefilled, got %q", model.s3FolderInput.Value())
+	}
+
+	model.s3FolderInput.SetValue("reports/2026")
+	resultEnter, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	modelEnter, ok := resultEnter.(Model)
+	if !ok {
+		t.Fatalf("expected Model, got %T", resultEnter)
+	}
+	if modelEnter.showS3CreateFolderModal {
+		t.Fatal("expected modal to close after submit")
+	}
+	if !modelEnter.loading {
+		t.Fatal("expected loading to be true after folder submit")
+	}
+	if cmd == nil {
+		t.Fatal("expected create folder command")
+	}
+}
+
 func TestUpdate_SQSCreateHandling(t *testing.T) {
 
 	m := mkModel()
@@ -704,6 +824,37 @@ func TestUpdate_SQSCreateHandling(t *testing.T) {
 	}
 	if cmdReload == nil {
 		t.Error("expected reload command")
+	}
+}
+
+func TestUpdate_SQSPurgeAllHandling(t *testing.T) {
+	m := mkModel()
+	m.activeTab = panelSQS
+	m.queues = []domain.SQSQueue{{Name: "q1", URL: "url-1"}, {Name: "q2", URL: "url-2"}}
+
+	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'P'}})
+	model, ok := result.(Model)
+	if !ok {
+		t.Fatalf("expected Model, got %T", result)
+	}
+	if !model.showSqsPurgeAllConfirm {
+		t.Fatal("expected purge-all modal to open")
+	}
+
+	model.sqsPurgeAllInput.SetValue("purge all")
+	resultEnter, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	modelEnter, ok := resultEnter.(Model)
+	if !ok {
+		t.Fatalf("expected Model, got %T", resultEnter)
+	}
+	if modelEnter.showSqsPurgeAllConfirm {
+		t.Fatal("expected purge-all modal to close")
+	}
+	if !modelEnter.loading {
+		t.Fatal("expected loading after purge-all submit")
+	}
+	if cmd == nil {
+		t.Fatal("expected purge-all command")
 	}
 }
 

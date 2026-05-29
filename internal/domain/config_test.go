@@ -11,14 +11,20 @@ func TestAWSConfig_DefaultValues(t *testing.T) {
 		EndpointURL:    "http://localhost:4566",
 		Region:         "us-east-1",
 		UseMock:        true,
-		LeftPanelRatio: 0.3,
+		LeftPanelRatio: 0.5,
+		PanelRatios: map[string]float64{
+			ServiceS3: 0.6,
+		},
 	}
 
 	if cfg.ServiceName != "test" {
 		t.Errorf("expected ServiceName 'test', got %q", cfg.ServiceName)
 	}
-	if cfg.LeftPanelRatio != 0.3 {
-		t.Errorf("expected LeftPanelRatio 0.3, got %f", cfg.LeftPanelRatio)
+	if cfg.LeftPanelRatio != 0.5 {
+		t.Errorf("expected LeftPanelRatio 0.5, got %f", cfg.LeftPanelRatio)
+	}
+	if cfg.PanelRatios[ServiceS3] != 0.6 {
+		t.Fatalf("expected PanelRatios for %q to be 0.6, got %f", ServiceS3, cfg.PanelRatios[ServiceS3])
 	}
 }
 
@@ -31,6 +37,11 @@ func TestAWSConfig_JSONRoundTrip(t *testing.T) {
 		SecretAccessKey: "secret123",
 		UseMock:         false,
 		LeftPanelRatio:  0.5,
+		PanelRatios: map[string]float64{
+			ServiceS3:      0.6,
+			ServiceSecrets: 0.4,
+		},
+		EnabledServices: []string{ServiceS3, ServiceSNS},
 	}
 
 	data, err := json.Marshal(original)
@@ -52,31 +63,25 @@ func TestAWSConfig_JSONRoundTrip(t *testing.T) {
 	if decoded.LeftPanelRatio != original.LeftPanelRatio {
 		t.Errorf("expected LeftPanelRatio %f, got %f", original.LeftPanelRatio, decoded.LeftPanelRatio)
 	}
+	if len(decoded.PanelRatios) != len(original.PanelRatios) {
+		t.Fatalf("expected PanelRatios %v, got %v", original.PanelRatios, decoded.PanelRatios)
+	}
+	if len(decoded.EnabledServices) != len(original.EnabledServices) {
+		t.Fatalf("expected EnabledServices %v, got %v", original.EnabledServices, decoded.EnabledServices)
+	}
 }
 
-func TestAWSConfig_LeftPanelRatioClamp(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    float64
-		expected float64
-	}{
-		{name: "zero", input: 0, expected: 0.3},
-		{name: "negative", input: -1, expected: 0.3},
-		{name: "too small", input: 0.04, expected: 0.3},
-		{name: "valid", input: 0.5, expected: 0.5},
-		{name: "too large", input: 0.96, expected: 0.3},
-	}
+func TestNormalizeEnabledServices(t *testing.T) {
+	got := NormalizeEnabledServices([]string{"S3", "sns", "invalid", "sqs", "sns"})
+	expected := []string{ServiceS3, ServiceSNS, ServiceSQS}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			cfg := AWSConfig{LeftPanelRatio: tt.input}
-			if cfg.LeftPanelRatio <= 0.05 || cfg.LeftPanelRatio >= 0.95 {
-				cfg.LeftPanelRatio = 0.3
-			}
-			if cfg.LeftPanelRatio != tt.expected {
-				t.Errorf("input %f: expected %f, got %f", tt.input, tt.expected, cfg.LeftPanelRatio)
-			}
-		})
+	if len(got) != len(expected) {
+		t.Fatalf("expected %v, got %v", expected, got)
+	}
+	for i := range expected {
+		if got[i] != expected[i] {
+			t.Fatalf("expected %v, got %v", expected, got)
+		}
 	}
 }
 

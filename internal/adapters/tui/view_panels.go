@@ -158,7 +158,10 @@ func (m Model) renderPillRows(maxWidth int, pills ...string) string {
 		currentWidth = pillWidth
 	}
 	flush()
-	return strings.Join(rows, "\n  ")
+	if len(rows) <= 1 {
+		return strings.Join(rows, "\n  ")
+	}
+	return strings.Join(rows, "\n\n  ")
 }
 
 func renderCounterSummary(queue domain.SQSQueue) string {
@@ -308,7 +311,7 @@ func (m Model) renderLine(ctx selectionContext, index int, cursor int, text stri
 }
 
 func (m Model) renderS3Panel() string {
-	leftWidth := int(float64(m.width-4) * m.leftPanelRatio)
+	leftWidth := int(float64(m.width-4) * m.panelRatioFor(panelS3))
 	if leftWidth < 15 {
 		leftWidth = 15
 	}
@@ -468,7 +471,7 @@ func (m Model) renderS3PreviewModal() string {
 }
 
 func (m Model) renderSQSPanel() string {
-	leftWidth := int(float64(m.width-4) * m.leftPanelRatio)
+	leftWidth := int(float64(m.width-4) * m.panelRatioFor(panelSQS))
 	if leftWidth < 15 {
 		leftWidth = 15
 	}
@@ -573,7 +576,7 @@ func (m Model) renderSQSPanel() string {
 }
 
 func (m Model) renderSNSPanel() string {
-	leftWidth := int(float64(m.width-4) * m.leftPanelRatio)
+	leftWidth := int(float64(m.width-4) * m.panelRatioFor(panelSNS))
 	if leftWidth < 15 {
 		leftWidth = 15
 	}
@@ -714,7 +717,7 @@ func renderSecretValuePreview(value string, width, maxLines int) string {
 }
 
 func (m Model) renderSecretsPanel() string {
-	leftWidth := int(float64(m.width-4) * m.leftPanelRatio)
+	leftWidth := int(float64(m.width-4) * m.panelRatioFor(panelSecrets))
 	if leftWidth < 18 {
 		leftWidth = 18
 	}
@@ -753,7 +756,10 @@ func (m Model) renderSecretsPanel() string {
 			m.renderMetricPill("Secret", selected.Name, lipgloss.Color(ui.ColorStack)),
 			m.renderMutedPill(fmt.Sprintf("%d versions", len(m.secretVersions))),
 		) + "\n")
+		rightBuilder.WriteString(m.renderDetailLine("Description", selected.Description, rightWidth-4) + "\n")
 		rightBuilder.WriteString(m.renderDetailLine("Last changed", selected.LastChangedDate, rightWidth-4) + "\n")
+		rightBuilder.WriteString(m.renderDetailLine("Primary region", selected.PrimaryRegion, rightWidth-4) + "\n")
+		rightBuilder.WriteString(m.renderDetailLine("KMS key", selected.KMSKeyID, rightWidth-4) + "\n")
 		rightBuilder.WriteString(m.renderDetailLine("Rotation", fmt.Sprintf("%t", selected.RotationEnabled), rightWidth-4) + "\n\n")
 
 		if len(m.secretVersions) == 0 {
@@ -879,6 +885,15 @@ func (m Model) renderS3CreateBucketModal() string {
 	builder.WriteString(m.styles.Title.Render("Create S3 Bucket") + "\n\n")
 	builder.WriteString(m.styles.InfoText.Render("Enter bucket name:") + "\n")
 	builder.WriteString(m.s3CreateInput.View() + "\n\n")
+	builder.WriteString(m.styles.InfoText.Render("Press [Enter] to Create | [Esc] to Close"))
+	return builder.String()
+}
+
+func (m Model) renderS3CreateFolderModal() string {
+	var builder strings.Builder
+	builder.WriteString(m.styles.Title.Render("Create S3 Folder") + "\n\n")
+	builder.WriteString(m.styles.InfoText.Render("Enter folder prefix:") + "\n")
+	builder.WriteString(m.s3FolderInput.View() + "\n\n")
 	builder.WriteString(m.styles.InfoText.Render("Press [Enter] to Create | [Esc] to Close"))
 	return builder.String()
 }
@@ -1095,6 +1110,16 @@ func (m Model) renderSqsConfirmDeleteModal() string {
 	return builder.String()
 }
 
+func (m Model) renderSqsPurgeAllConfirmModal() string {
+	var builder strings.Builder
+	builder.WriteString(m.styles.Title.Render("Confirm Purge All SQS Queues") + "\n\n")
+	builder.WriteString(m.styles.InfoText.Render(fmt.Sprintf("Purge %d loaded queues?", len(m.queues))) + "\n\n")
+	builder.WriteString(m.styles.InfoText.Render("Type `purge all` to confirm.") + "\n")
+	builder.WriteString(m.sqsPurgeAllInput.View() + "\n\n")
+	builder.WriteString(m.styles.InfoText.Render("Press [Enter] to Confirm | [Esc] to Cancel"))
+	return builder.String()
+}
+
 func (m Model) renderSqsSubDeleteConfirmModal() string {
 	var builder strings.Builder
 	builder.WriteString(m.styles.Title.Render("Confirm Unsubscribe") + "\n\n")
@@ -1137,6 +1162,7 @@ func (m Model) renderConfigPanel() string {
 		"5. Secret Key:       ",
 		"6. Mock Mode:        ",
 		"7. Snapshot Path:    ",
+		"8. Enabled Services: ",
 	}
 
 	maxVisibleFields := (innerHeight - 1) / 5
@@ -1194,7 +1220,7 @@ func (m Model) renderConfigPanel() string {
 
 	hintStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorAccent)).Bold(true)
 	builder.WriteString("\n")
-	builder.WriteString(hintStyle.Render("  [E] Export Snapshot") + "  " + hintStyle.Render("[L] Load Snapshot"))
+	builder.WriteString(hintStyle.Render("  [E] Export Snapshot") + "  " + hintStyle.Render("[L] Load Snapshot") + "  " + hintStyle.Render("[S] Save"))
 
 	return m.renderTitledPanel(width, height, "Connection Settings", builder.String(), true, lipgloss.Color(ui.ColorStack))
 }
@@ -1260,6 +1286,12 @@ func (m Model) renderHelpModal() string {
 		entries []helpEntry
 	}
 
+	tabKeys := []string{}
+	for i := range m.visibleServicePanels() {
+		tabKeys = append(tabKeys, fmt.Sprintf("%d", i+1))
+	}
+	tabKeys = append(tabKeys, "5")
+
 	sections := []helpSection{
 		{
 			title: "NAVIGATION",
@@ -1267,7 +1299,7 @@ func (m Model) renderHelpModal() string {
 				{key: "jk | arrows", action: "Move selection"},
 				{key: "h | l | arrows", action: "Switch panels"},
 				{key: "< | >", action: "Resize panels"},
-				{key: "1 | 2 | 3 | 4 | 5", action: "Jump to tab"},
+				{key: strings.Join(tabKeys, " | "), action: "Jump to tab"},
 				{key: "tab", action: "Cycle focus"},
 			},
 		},
@@ -1282,19 +1314,26 @@ func (m Model) renderHelpModal() string {
 				{key: "q", action: "Quit"},
 			},
 		},
-		{
+	}
+
+	if m.panelEnabled(panelS3) {
+		sections = append(sections, helpSection{
 			title: "AWS S3",
 			entries: []helpEntry{
 				{key: "enter | →", action: "Select bucket"},
 				{key: "esc | ←", action: "Back to buckets"},
 				{key: "c", action: "Create bucket"},
+				{key: "f", action: "Create folder"},
 				{key: "u", action: "Upload object"},
 				{key: "v", action: "Preview object"},
 				{key: "w", action: "Download object"},
 				{key: "d", action: "Delete object"},
 			},
-		},
-		{
+		})
+	}
+
+	if m.panelEnabled(panelSQS) {
+		sections = append(sections, helpSection{
 			title: "AWS SQS",
 			entries: []helpEntry{
 				{key: "enter", action: "Inspect queue"},
@@ -1302,11 +1341,15 @@ func (m Model) renderHelpModal() string {
 				{key: "v", action: "Peek messages"},
 				{key: "s", action: "Send message"},
 				{key: "p", action: "Purge queue"},
+				{key: "P", action: "Purge all loaded queues"},
 				{key: "b", action: "Subscribe topics"},
 				{key: "d", action: "Delete queue"},
 			},
-		},
-		{
+		})
+	}
+
+	if m.panelEnabled(panelSNS) {
+		sections = append(sections, helpSection{
 			title: "AWS SNS",
 			entries: []helpEntry{
 				{key: "enter", action: "Inspect topic"},
@@ -1318,8 +1361,11 @@ func (m Model) renderHelpModal() string {
 				{key: "s", action: "Publish message"},
 				{key: "d", action: "Delete topic"},
 			},
-		},
-		{
+		})
+	}
+
+	if m.panelEnabled(panelSecrets) {
+		sections = append(sections, helpSection{
 			title: "SECRETS",
 			entries: []helpEntry{
 				{key: "enter", action: "Inspect secret"},
@@ -1331,16 +1377,17 @@ func (m Model) renderHelpModal() string {
 				{key: "R", action: "Recover secret"},
 				{key: "d", action: "Delete secret"},
 			},
-		},
-		{
-			title: "SETTINGS",
-			entries: []helpEntry{
-				{key: "enter", action: "Edit field"},
-				{key: "tab | s-tab", action: "Cycle inputs"},
-				{key: "esc", action: "Stop editing"},
-			},
-		},
+		})
 	}
+
+	sections = append(sections, helpSection{
+		title: "SETTINGS",
+		entries: []helpEntry{
+			{key: "enter", action: "Edit field"},
+			{key: "tab | s-tab", action: "Cycle inputs"},
+			{key: "esc", action: "Stop editing"},
+		},
+	})
 
 	renderSection := func(section helpSection) string {
 		keyStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMono)).Bold(true)

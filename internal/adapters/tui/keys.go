@@ -23,12 +23,14 @@ type keyMap struct {
 	S3Create   key.Binding
 	S3Upload   key.Binding
 	S3Preview  key.Binding
+	S3Folder   key.Binding
 
-	SQSPurge  key.Binding
-	SQSView   key.Binding
-	SQSSend   key.Binding
-	SQSDelete key.Binding
-	SQSCreate key.Binding
+	SQSPurge    key.Binding
+	SQSPurgeAll key.Binding
+	SQSView     key.Binding
+	SQSSend     key.Binding
+	SQSDelete   key.Binding
+	SQSCreate   key.Binding
 
 	SNSCreate     key.Binding
 	SNSDelete     key.Binding
@@ -126,9 +128,17 @@ var keys = keyMap{
 		key.WithKeys("v"),
 		key.WithHelp("v", "preview object"),
 	),
+	S3Folder: key.NewBinding(
+		key.WithKeys("f"),
+		key.WithHelp("f", "create folder"),
+	),
 	SQSPurge: key.NewBinding(
 		key.WithKeys("p"),
 		key.WithHelp("p", "purge queue"),
+	),
+	SQSPurgeAll: key.NewBinding(
+		key.WithKeys("P"),
+		key.WithHelp("P", "purge all"),
 	),
 	SQSView: key.NewBinding(
 		key.WithKeys("v"),

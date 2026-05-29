@@ -3,11 +3,36 @@ package config
 import (
 	"encoding/json"
 	"errors"
+	"math"
 	"os"
 	"path/filepath"
 
 	"monostack/internal/domain"
 )
+
+const defaultPanelRatio = 0.5
+
+func normalizePanelRatio(value float64) float64 {
+	if math.IsNaN(value) || math.IsInf(value, 0) {
+		return defaultPanelRatio
+	}
+	if value <= 0.05 || value >= 0.95 {
+		return defaultPanelRatio
+	}
+	return value
+}
+
+func clonePanelRatios(values map[string]float64) map[string]float64 {
+	if len(values) == 0 {
+		return nil
+	}
+
+	cloned := make(map[string]float64, len(values))
+	for key, value := range values {
+		cloned[key] = normalizePanelRatio(value)
+	}
+	return cloned
+}
 
 type FileConfigStore struct {
 	filePath string
@@ -27,12 +52,13 @@ func NewFileConfigStore(fileName string) *FileConfigStore {
 func (s *FileConfigStore) Load() (*domain.AWSConfig, error) {
 	if _, err := os.Stat(s.filePath); errors.Is(err, os.ErrNotExist) {
 		defaultConfig := &domain.AWSConfig{
-			ServiceName:    "MiniStack",
-			EndpointURL:    "http://localhost:4566",
-			Region:         "us-east-1",
-			UseMock:        false,
-			LeftPanelRatio: 0.3,
-			SnapshotPath:   "",
+			ServiceName:     "MiniStack",
+			EndpointURL:     "http://localhost:4566",
+			Region:          "us-east-1",
+			UseMock:         false,
+			LeftPanelRatio:  defaultPanelRatio,
+			EnabledServices: domain.DefaultEnabledServices(),
+			SnapshotPath:    "",
 		}
 		_ = s.Save(defaultConfig)
 		return defaultConfig, nil
@@ -48,9 +74,9 @@ func (s *FileConfigStore) Load() (*domain.AWSConfig, error) {
 		return nil, err
 	}
 
-	if cfg.LeftPanelRatio <= 0.05 || cfg.LeftPanelRatio >= 0.95 {
-		cfg.LeftPanelRatio = 0.3
-	}
+	cfg.LeftPanelRatio = normalizePanelRatio(cfg.LeftPanelRatio)
+	cfg.PanelRatios = clonePanelRatios(cfg.PanelRatios)
+	cfg.EnabledServices = domain.NormalizeEnabledServices(cfg.EnabledServices)
 
 	if cfg.SnapshotPath == "" {
 		cfg.SnapshotPath = ""
@@ -60,6 +86,11 @@ func (s *FileConfigStore) Load() (*domain.AWSConfig, error) {
 }
 
 func (s *FileConfigStore) Save(cfg *domain.AWSConfig) error {
+	if cfg != nil {
+		cfg.EnabledServices = domain.NormalizeEnabledServices(cfg.EnabledServices)
+		cfg.LeftPanelRatio = normalizePanelRatio(cfg.LeftPanelRatio)
+		cfg.PanelRatios = clonePanelRatios(cfg.PanelRatios)
+	}
 	dir := filepath.Dir(s.filePath)
 	if err := os.MkdirAll(dir, 0750); err != nil {
 		return err

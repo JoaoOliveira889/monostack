@@ -264,6 +264,22 @@ func (m *Model) createS3BucketCmd(name string) tea.Cmd {
 	}
 }
 
+func (m *Model) createS3FolderCmd(bucket, prefix string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+		defer cancel()
+
+		if err := m.awsUseCase.CreateS3Folder(ctx, m.config, bucket, prefix); err != nil {
+			return errMsg{Error: err}
+		}
+		key := strings.TrimSpace(prefix)
+		if !strings.HasSuffix(key, "/") {
+			key += "/"
+		}
+		return s3FolderCreatedMsg{Bucket: bucket, Key: key}
+	}
+}
+
 func (m *Model) downloadS3ObjectCmd(bucket, key string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -325,6 +341,18 @@ func (m *Model) purgeSQSQueueCmd(queueURL string) tea.Cmd {
 			return errMsg{Error: err}
 		}
 		return sqsQueuePurgedMsg{QueueURL: queueURL}
+	}
+}
+
+func (m *Model) purgeSQSQueuesCmd(queueURLs []string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		if err := m.awsUseCase.PurgeSQSQueues(ctx, m.config, queueURLs); err != nil {
+			return errMsg{Error: err}
+		}
+		return sqsQueuesPurgedMsg{Count: len(queueURLs)}
 	}
 }
 
@@ -639,18 +667,28 @@ func (m *Model) deleteSNSSubscriptionCmd(subARN string) tea.Cmd {
 	}
 }
 
-func (m *Model) updateSNSSubscriptionCmd(subARN string, filterPolicy map[string][]string) tea.Cmd {
+func (m *Model) updateSNSSubscriptionCmd(subARN string, filterPolicy map[string][]string, filterScope string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 		defer cancel()
 
-		fpJSON, err := json.Marshal(filterPolicy)
-		if err != nil {
-			return errMsg{Error: err}
+		filterPayload := "{}"
+		if len(filterPolicy) > 0 {
+			fpJSON, err := json.Marshal(filterPolicy)
+			if err != nil {
+				return errMsg{Error: err}
+			}
+			filterPayload = string(fpJSON)
 		}
 
-		err = m.awsUseCase.SetSNSSubscriptionAttributes(ctx, m.config, subARN, "FilterPolicy", string(fpJSON))
-		if err != nil {
+		if err := m.awsUseCase.SetSNSSubscriptionAttributes(ctx, m.config, subARN, "FilterPolicy", filterPayload); err != nil {
+			return errMsg{Error: err}
+		}
+		scopeValue := "MessageAttributes"
+		if strings.EqualFold(strings.TrimSpace(filterScope), domain.SubscriptionFilterScopeMessageBody) {
+			scopeValue = "MessageBody"
+		}
+		if err := m.awsUseCase.SetSNSSubscriptionAttributes(ctx, m.config, subARN, "FilterPolicyScope", scopeValue); err != nil {
 			return errMsg{Error: err}
 		}
 		return snsSubscriptionUpdatedMsg{ARN: subARN}

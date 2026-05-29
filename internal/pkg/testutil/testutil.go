@@ -31,6 +31,7 @@ type MockS3Manager struct {
 	DeleteObjectFunc    func(ctx context.Context, cfg *domain.AWSConfig, bucket, key string) error
 	DeleteBucketFunc    func(ctx context.Context, cfg *domain.AWSConfig, bucket string) error
 	CreateBucketFunc    func(ctx context.Context, cfg *domain.AWSConfig, name string) error
+	CreateFolderFunc    func(ctx context.Context, cfg *domain.AWSConfig, bucket, key string) error
 	UploadObjectFunc    func(ctx context.Context, cfg *domain.AWSConfig, bucket, key, filePath string) error
 	GetPresignedURLFunc func(ctx context.Context, cfg *domain.AWSConfig, bucket, key string) (string, error)
 	DownloadObjectFunc  func(ctx context.Context, cfg *domain.AWSConfig, bucket, key, destPath string) error
@@ -67,6 +68,13 @@ func (m *MockS3Manager) DeleteBucket(ctx context.Context, cfg *domain.AWSConfig,
 func (m *MockS3Manager) CreateBucket(ctx context.Context, cfg *domain.AWSConfig, name string) error {
 	if m.CreateBucketFunc != nil {
 		return m.CreateBucketFunc(ctx, cfg, name)
+	}
+	return nil
+}
+
+func (m *MockS3Manager) CreateFolder(ctx context.Context, cfg *domain.AWSConfig, bucket, key string) error {
+	if m.CreateFolderFunc != nil {
+		return m.CreateFolderFunc(ctx, cfg, bucket, key)
 	}
 	return nil
 }

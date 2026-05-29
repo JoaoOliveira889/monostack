@@ -25,7 +25,9 @@ func TestKeyMap_Bindings(t *testing.T) {
 		{"S3Presign", keys.S3Presign},
 		{"S3Delete", keys.S3Delete},
 		{"S3Download", keys.S3Download},
+		{"S3Folder", keys.S3Folder},
 		{"SQSPurge", keys.SQSPurge},
+		{"SQSPurgeAll", keys.SQSPurgeAll},
 		{"SQSView", keys.SQSView},
 		{"SQSSend", keys.SQSSend},
 	}
@@ -59,7 +61,9 @@ func TestKeyMap_UniqueKeys(t *testing.T) {
 		{"S3Presign", keys.S3Presign},
 		{"S3Delete", keys.S3Delete},
 		{"S3Download", keys.S3Download},
+		{"S3Folder", keys.S3Folder},
 		{"SQSPurge", keys.SQSPurge},
+		{"SQSPurgeAll", keys.SQSPurgeAll},
 		{"SQSView", keys.SQSView},
 		{"SQSSend", keys.SQSSend},
 	}

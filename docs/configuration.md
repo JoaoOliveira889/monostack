@@ -22,7 +22,13 @@ Located at `~/.config/monostack/config.json`. Written with `0600` permissions fo
   "access_key_id": "",
   "secret_access_key": "",
   "use_mock": false,
-  "left_panel_ratio": 0.3
+  "left_panel_ratio": 0.5,
+  "panel_ratios": {
+    "s3": 0.5,
+    "sqs": 0.5,
+    "sns": 0.5,
+    "secrets": 0.5
+  }
 }
 ```
 
@@ -36,7 +42,8 @@ Located at `~/.config/monostack/config.json`. Written with `0600` permissions fo
 | `access_key_id` | AWS access key ID |
 | `secret_access_key` | AWS secret access key |
 | `use_mock` | When `true`, all AWS calls return simulated data |
-| `left_panel_ratio` | Width ratio of the left panel in the TUI (0.0 to 1.0) |
+| `left_panel_ratio` | Legacy fallback ratio kept for backwards compatibility |
+| `panel_ratios` | Per-service split ratios for `s3`, `sqs`, `sns`, and `secrets` |
 
 ## YAML Subscription Import
 
@@ -55,6 +62,10 @@ subscriptions:
 `queue` is optional per entry. Monostack uses `queue`, then `default_queue`, then a sibling queue inferred from the topic name (`-sns` → `-sqs`). `default_filter_scope` is optional and falls back to `message_body` when omitted.
 
 When `default_filter_scope` is set to `message_attributes`, the filter policy applies to SNS message attributes. When set to `message_body`, the filter checks within the JSON body.
+
+The Settings panel also includes `enabled_services`, which accepts a comma-separated list like `s3,sqs,sns,secrets`. When set, Monostack only shows and reloads the enabled service panels.
+
+Each service panel keeps its own split ratio. If a service has no saved ratio yet, Monostack opens it at `50/50`.
 
 ## CLI Flags
 

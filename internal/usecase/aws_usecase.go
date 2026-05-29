@@ -45,6 +45,10 @@ func (uc *AWSUseCase) CreateS3Bucket(ctx context.Context, cfg *domain.AWSConfig,
 	return uc.s3.CreateBucket(ctx, cfg, name)
 }
 
+func (uc *AWSUseCase) CreateS3Folder(ctx context.Context, cfg *domain.AWSConfig, bucket string, key string) error {
+	return uc.s3.CreateFolder(ctx, cfg, bucket, key)
+}
+
 func (uc *AWSUseCase) UploadS3Object(ctx context.Context, cfg *domain.AWSConfig, bucket string, key string, filePath string) error {
 	return uc.s3.UploadObject(ctx, cfg, bucket, key, filePath)
 }
@@ -71,6 +75,15 @@ func (uc *AWSUseCase) ReceiveSQSMessages(ctx context.Context, cfg *domain.AWSCon
 
 func (uc *AWSUseCase) PurgeSQSQueue(ctx context.Context, cfg *domain.AWSConfig, queueURL string) error {
 	return uc.sqs.PurgeQueue(ctx, cfg, queueURL)
+}
+
+func (uc *AWSUseCase) PurgeSQSQueues(ctx context.Context, cfg *domain.AWSConfig, queueURLs []string) error {
+	for _, queueURL := range queueURLs {
+		if err := uc.sqs.PurgeQueue(ctx, cfg, queueURL); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (uc *AWSUseCase) DeleteSQSQueue(ctx context.Context, cfg *domain.AWSConfig, queueURL string) error {
