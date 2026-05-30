@@ -61,6 +61,9 @@ func TestModel_VersionConstant(t *testing.T) {
 	if Version == "" {
 		t.Error("expected Version to be non-empty")
 	}
+	if Version != "0.0.4" {
+		t.Fatalf("expected Version to be 0.0.4, got %q", Version)
+	}
 }
 
 func TestModel_StylesNotPanic(t *testing.T) {

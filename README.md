@@ -4,12 +4,14 @@
   <a href="https://github.com/JoaoOliveira889/monostack/releases/latest"><img src="https://img.shields.io/github/v/release/JoaoOliveira889/monostack?color=7aa2f7&label=tag&logo=github&style=flat-square" alt="Latest Tag"></a>
   <a href="https://github.com/JoaoOliveira889/monostack/releases/latest"><img src="https://img.shields.io/github/downloads/JoaoOliveira889/monostack/total?color=9ece6a&label=downloads&logo=github&style=flat-square" alt="Total Downloads"></a>
   <a href="https://goreportcard.com/report/github.com/JoaoOliveira889/monostack"><img src="https://goreportcard.com/badge/github.com/JoaoOliveira889/monostack?style=flat-square" alt="Go Report Card"></a>
-  <a href="https://github.com/JoaoOliveira889/homebrew-tap"><img src="https://img.shields.io/badge/homebrew-v0.0.3-7dcfff?logo=homebrew&style=flat-square" alt="Homebrew Version"></a>
+  <a href="https://github.com/JoaoOliveira889/monostack"><img src="https://img.shields.io/badge/homebrew-v0.0.4-7dcfff?logo=homebrew&style=flat-square" alt="Homebrew Version"></a>
 </p>
 
 **Multi-service AWS dashboard for your terminal.** A TUI tool that connects to AWS (or LocalStack) and gives you a panoramic view of S3 buckets, SQS queues, SNS topics, and Secrets Manager — with one-key actions for common workflows and confirmation guards for every mutating command.
 
-![MonoStack Dashboard](img/background.png)
+Current release: [0.0.4](https://github.com/JoaoOliveira889/monostack)
+
+![MonoStack Dashboard](img/banner.jpg)
 
 Built with [Bubble Tea](https://github.com/charmbracelet/bubbletea), [Lip Gloss](https://github.com/charmbracelet/lipgloss), and [Bubbles](https://github.com/charmbracelet/bubbles).
 
@@ -131,8 +133,12 @@ monostack
 | `↓ | j` | Move cursor down |
 | `← | h` | Navigate back / Switch panel |
 | `→ | l` | Navigate forward / Switch panel |
+| `< | >` | Resize split panels |
 | `tab` | Cycle between panels |
 | `ctrl+p | ?` | Toggle Help Menu |
+| `o` | Command logs |
+| `space` | Start or extend text selection |
+| `y` | Copy selected text |
 | `esc` | Back / Cancel / Close |
 | `q` | Quit |
 
@@ -143,8 +149,10 @@ monostack
 | `Enter` / `→` | Select bucket / enter object view |
 | `Esc` / `←` | Back to bucket list |
 | `b` | Open file in browser (presigned URL) |
-| `d` | Download file |
-| `x` / `Delete` | Delete file or bucket |
+| `u` | Upload object |
+| `v` | Preview object |
+| `w` | Download file |
+| `d` | Delete file or bucket |
 | `c` | Create bucket |
 | `f` | Create folder prefix |
 
@@ -158,8 +166,9 @@ monostack
 | `s` | Send message |
 | `p` | Purge queue |
 | `P` | Purge all loaded queues |
+| `b` | Subscribe topics |
 | `c` | Create queue |
-| `x` / `Delete` | Delete queue |
+| `d` | Delete queue |
 
 ### SNS Topics
 
@@ -170,16 +179,21 @@ monostack
 | `s` | Publish event |
 | `i` | Import subscription YAML |
 | `c` | Create topic |
-| `x` / `Delete` | Delete topic |
+| `b` | Batch subscribe |
+| `e` | Edit filter |
+| `d` | Delete topic |
 
 ### Secrets Manager
 
 | Key | Action |
 |-----|--------|
-| `Enter` / `v` | Reveal selected secret value |
+| `Enter` | Inspect selected secret |
+| `l` / `h` | Switch list or versions |
+| `r` | Promote selected version |
 | `c` | Create secret |
 | `u` | Update secret value |
-| `r` | Restore secret |
+| `v` | Reveal selected secret value |
+| `R` | Restore secret |
 | `d` | Delete secret |
 
 ### Settings

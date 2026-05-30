@@ -270,7 +270,7 @@ type styles struct {
 	InfoText         lipgloss.Style
 }
 
-var Version = "0.0.2"
+var Version = "0.0.4"
 
 const splashFrameLimit = 20
 

@@ -141,6 +141,16 @@ func TestYamlScriptCommandsArePerTopic(t *testing.T) {
 	if data, err := os.ReadFile(firstPath); err != nil || string(data) != "pix-yaml" {
 		t.Fatalf("unexpected first topic content: %q, %v", string(data), err)
 	}
+	if info, err := os.Stat(filepath.Dir(firstPath)); err != nil {
+		t.Fatalf("expected yaml directory to exist: %v", err)
+	} else if perm := info.Mode().Perm(); perm != 0o750 {
+		t.Fatalf("expected yaml directory permissions 0750, got %o", perm)
+	}
+	if info, err := os.Stat(firstPath); err != nil {
+		t.Fatalf("expected yaml file to exist: %v", err)
+	} else if perm := info.Mode().Perm(); perm != 0o600 {
+		t.Fatalf("expected yaml file permissions 0600, got %o", perm)
+	}
 	if data, err := os.ReadFile(secondPath); err != nil || string(data) != "notifications-yaml" {
 		t.Fatalf("unexpected second topic content: %q, %v", string(data), err)
 	}

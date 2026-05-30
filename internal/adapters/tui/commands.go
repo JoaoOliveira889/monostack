@@ -845,10 +845,10 @@ func (m *Model) saveYamlScriptCmd(topicARN string, content string) tea.Cmd {
 		if err != nil {
 			return errMsg{Error: err}
 		}
-		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(path), 0750); err != nil {
 			return errMsg{Error: err}
 		}
-		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		if err := os.WriteFile(path, []byte(content), 0600); err != nil {
 			return errMsg{Error: err}
 		}
 		return yamlScriptSavedMsg{TopicARN: topicARN}

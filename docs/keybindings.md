@@ -1,5 +1,7 @@
 # Keybindings
 
+Current release: [0.0.4](https://github.com/JoaoOliveira889/monostack)
+
 ## Global
 
 | Key | Action |
@@ -13,6 +15,7 @@
 | `k` / `↑` | Move cursor up |
 | `←` / `h` | Switch to left panel |
 | `→` / `l` | Switch to right panel |
+| `<` / `>` | Resize split panels |
 | `tab` | Cycle between visible panels |
 | `q` / `Ctrl+C` | Quit |
 | `Ctrl+P` / `?` | Toggle Help Menu |
@@ -28,11 +31,12 @@
 | `Enter` / `→` | Select bucket / enter object view |
 | `Esc` / `←` | Back to bucket list |
 | `b` | Open file in browser (presigned URL) |
-| `d` | Download file to `~/Downloads/monostack/` |
-| `x` / `Delete` | Delete file or bucket |
+| `u` | Upload object |
+| `v` | Preview object |
+| `w` | Download file to `~/Downloads/monostack/` |
+| `d` | Delete file or bucket |
 | `c` | Create bucket |
 | `f` | Create folder prefix |
-| `u` | Upload object |
 
 ## SQS Queues
 
@@ -44,8 +48,9 @@
 | `s` | Send message |
 | `p` | Purge queue |
 | `P` | Purge all loaded queues |
+| `b` | Subscribe topics |
 | `c` | Create queue |
-| `x` / `Delete` | Delete queue |
+| `d` | Delete queue |
 
 ## SNS Topics
 
@@ -56,17 +61,21 @@
 | `s` | Publish event |
 | `i` | Import subscription YAML |
 | `c` | Create topic |
-| `x` / `Delete` | Delete topic |
 | `b` | Batch subscribe SNS to SQS |
+| `e` | Edit filter |
+| `d` | Delete topic |
 
 ## Secrets Manager
 
 | Key | Action |
 |-----|--------|
-| `Enter` / `v` | Reveal selected secret value |
+| `Enter` | Inspect selected secret |
+| `l` / `h` | Switch list or versions |
+| `r` | Promote selected version |
 | `c` | Create secret |
 | `u` | Update secret value |
-| `r` | Restore secret |
+| `v` | Reveal selected secret value |
+| `R` | Restore secret |
 | `d` | Delete secret |
 
 ## Settings

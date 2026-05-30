@@ -1,5 +1,7 @@
 # Getting Started
 
+Current release: [0.0.4](https://github.com/JoaoOliveira889/monostack)
+
 ## Installation
 
 Choose one of the installation methods from the [README](../README.md). There are four options available:

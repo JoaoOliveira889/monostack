@@ -1,5 +1,7 @@
 # Configuration
 
+Current release: [0.0.4](https://github.com/JoaoOliveira889/monostack)
+
 ## Environment Variables
 
 | Variable | Description |
