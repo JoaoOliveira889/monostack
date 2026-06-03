@@ -1,11 +1,12 @@
 package domain
 
 type S3ObjectSnapshot struct {
-	Key           string `yaml:"key"`
-	Size          int64  `yaml:"size,omitempty"`
-	LastModified  string `yaml:"last_modified,omitempty"`
-	ContentBase64 string `yaml:"content_base64,omitempty"`
-	ContentType   string `yaml:"content_type,omitempty"`
+	Key           string            `yaml:"key"`
+	Size          int64             `yaml:"size,omitempty"`
+	LastModified  string            `yaml:"last_modified,omitempty"`
+	ContentBase64 string            `yaml:"content_base64,omitempty"`
+	ContentType   string            `yaml:"content_type,omitempty"`
+	Metadata      map[string]string `yaml:"metadata,omitempty"`
 }
 
 type S3BucketSnapshot struct {
@@ -34,4 +35,13 @@ type AppProfile struct {
 	S3            []S3BucketSnapshot    `yaml:"s3,omitempty"`
 	SQS           []SQSQueueSnapshot    `yaml:"sqs,omitempty"`
 	SNS           []SNSTopicSnapshot    `yaml:"sns,omitempty"`
+	Secrets       []SecretSnapshot      `yaml:"secrets,omitempty"`
+}
+
+type SecretSnapshot struct {
+	Name             string `yaml:"name"`
+	Description      string `yaml:"description,omitempty"`
+	KMSKeyID         string `yaml:"kms_key_id,omitempty"`
+	SecretString     string `yaml:"secret_string,omitempty"`
+	SecretBinaryB64  string `yaml:"secret_binary_b64,omitempty"`
 }

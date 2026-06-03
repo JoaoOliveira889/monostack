@@ -15,6 +15,8 @@ type S3Object struct {
 	Key          string
 	Size         int64
 	LastModified string
+	ContentType  string
+	Metadata     map[string]string
 }
 
 type S3Manager interface {
@@ -25,8 +27,10 @@ type S3Manager interface {
 	CreateBucket(ctx context.Context, cfg *AWSConfig, name string) error
 	CreateFolder(ctx context.Context, cfg *AWSConfig, bucket string, key string) error
 	UploadObject(ctx context.Context, cfg *AWSConfig, bucket string, key string, filePath string) error
+	UploadObjectWithMetadata(ctx context.Context, cfg *AWSConfig, bucket string, key string, filePath string, metadata map[string]string) error
 	GetPresignedURL(ctx context.Context, cfg *AWSConfig, bucket string, key string) (string, error)
 	DownloadObject(ctx context.Context, cfg *AWSConfig, bucket string, key string, destPath string) error
+	HeadObject(ctx context.Context, cfg *AWSConfig, bucket string, key string) (contentType string, metadata map[string]string, err error)
 }
 
 type SQSQueue struct {

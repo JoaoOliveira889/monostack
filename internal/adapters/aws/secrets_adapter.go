@@ -215,9 +215,8 @@ func (a *SecretsAdapter) UpdateSecretValue(ctx context.Context, cfg *domain.AWSC
 	client := secretsmanager.NewFromConfig(awsCfg)
 	if strings.TrimSpace(description) != "" {
 		if _, err := client.UpdateSecret(ctx, &secretsmanager.UpdateSecretInput{
-			SecretId:     aws.String(secretID),
-			Description:  aws.String(description),
-			SecretString: aws.String(value),
+			SecretId:    aws.String(secretID),
+			Description: aws.String(description),
 		}); err != nil {
 			return domain.SecretValue{}, fmt.Errorf("failed to update secret metadata for %s: %w", secretID, err)
 		}

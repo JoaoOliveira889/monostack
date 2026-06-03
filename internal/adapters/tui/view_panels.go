@@ -854,6 +854,15 @@ func (m Model) renderSecretPromoteConfirmModal() string {
 	return builder.String()
 }
 
+func (m Model) renderSecretClipboardConfirmModal() string {
+	var builder strings.Builder
+	builder.WriteString(m.styles.Title.Render("Copy Secret to Clipboard") + "\n\n")
+	builder.WriteString(m.styles.InfoText.Render("The secret value will be placed on your system clipboard.") + "\n")
+	builder.WriteString(m.styles.InfoText.Render("Other applications may be able to read it from there.") + "\n\n")
+	builder.WriteString(m.styles.InfoText.Render("Press [Y] to Confirm | Any other key to Cancel"))
+	return builder.String()
+}
+
 func (m Model) renderSecretValueModal() string {
 	var builder strings.Builder
 	builder.WriteString(m.styles.Title.Render("Secret Value") + "\n\n")
@@ -1114,9 +1123,7 @@ func (m Model) renderSqsPurgeAllConfirmModal() string {
 	var builder strings.Builder
 	builder.WriteString(m.styles.Title.Render("Confirm Purge All SQS Queues") + "\n\n")
 	builder.WriteString(m.styles.InfoText.Render(fmt.Sprintf("Purge %d loaded queues?", len(m.queues))) + "\n\n")
-	builder.WriteString(m.styles.InfoText.Render("Type `purge all` to confirm.") + "\n")
-	builder.WriteString(m.sqsPurgeAllInput.View() + "\n\n")
-	builder.WriteString(m.styles.InfoText.Render("Press [Enter] to Confirm | [Esc] to Cancel"))
+	builder.WriteString(m.styles.InfoText.Render("Press [Y] to Confirm | Any other key to Cancel"))
 	return builder.String()
 }
 
@@ -1131,7 +1138,7 @@ func (m Model) renderSqsSubDeleteConfirmModal() string {
 func (m Model) renderExportProfileModal() string {
 	var builder strings.Builder
 	builder.WriteString(m.styles.Title.Render("Export Snapshot") + "\n\n")
-	builder.WriteString(m.styles.InfoText.Render("Save config, S3, SQS and SNS state to a snapshot file.") + "\n")
+	builder.WriteString(m.styles.InfoText.Render("Save config, S3, SQS, SNS and Secrets state to a snapshot file.") + "\n")
 	builder.WriteString(m.styles.InfoText.Render("Enter destination folder or file:") + "\n")
 	builder.WriteString(m.exportPathInput.View() + "\n\n")
 	builder.WriteString(m.styles.InfoText.Render("Press [Enter] to Export | [Esc] to Cancel"))
@@ -1220,6 +1227,12 @@ func (m Model) renderConfigPanel() string {
 
 	hintStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorAccent)).Bold(true)
 	builder.WriteString("\n")
+
+	if m.config != nil && strings.HasPrefix(strings.ToLower(m.config.EndpointURL), "http://") {
+		warnStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorError)).Bold(true)
+		builder.WriteString(warnStyle.Render("  WARNING: Endpoint uses HTTP - credentials sent in plaintext") + "\n\n")
+	}
+
 	builder.WriteString(hintStyle.Render("  [E] Export Snapshot") + "  " + hintStyle.Render("[L] Load Snapshot") + "  " + hintStyle.Render("[S] Save"))
 
 	return m.renderTitledPanel(width, height, "Connection Settings", builder.String(), true, lipgloss.Color(ui.ColorStack))

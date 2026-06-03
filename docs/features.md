@@ -41,8 +41,9 @@ Inspect and manage AWS Secrets Manager secrets:
 - List secrets with metadata and version counts
 - Inspect versions and current value
 - Create, update, delete, and restore secrets
-- Promote specific versions
+- Promote specific versions (`r` key)
 - Keep secret values masked until explicitly revealed
+- Clipboard copy requires confirmation to prevent secret leakage
 
 ## Configuration Profiles
 
@@ -70,9 +71,10 @@ Run entirely offline with simulated AWS responses. Useful for:
 ## Snapshot Export/Import
 
 Export your entire environment to a YAML file for later restoration:
-- Export includes S3 buckets, SQS queues (with attributes), SNS topics (with subscriptions), and managed subscriptions
+- Export includes S3 buckets (with full object contents), SQS queues (with attributes), SNS topics (with subscriptions), secrets metadata and values, and managed subscriptions
 - Import restores all resources to the configured AWS endpoint
 - Useful for recreating development environments after restarting LocalStack
+- **Security note:** Snapshots contain sensitive data including S3 object contents and secret values. Snapshots are stored with `0600` permissions. Credentials (access_key_id and secret_access_key) are stripped from snapshot exports. Treat snapshot YAML files as sensitive.
 
 ## Command Log
 

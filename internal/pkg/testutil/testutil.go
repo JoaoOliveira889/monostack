@@ -26,15 +26,17 @@ func (m *MockConfigStore) Save(cfg *domain.AWSConfig) error {
 }
 
 type MockS3Manager struct {
-	ListBucketsFunc     func(ctx context.Context, cfg *domain.AWSConfig) ([]domain.S3Bucket, error)
-	ListObjectsFunc     func(ctx context.Context, cfg *domain.AWSConfig, bucket, prefix string) ([]domain.S3Object, error)
-	DeleteObjectFunc    func(ctx context.Context, cfg *domain.AWSConfig, bucket, key string) error
-	DeleteBucketFunc    func(ctx context.Context, cfg *domain.AWSConfig, bucket string) error
-	CreateBucketFunc    func(ctx context.Context, cfg *domain.AWSConfig, name string) error
-	CreateFolderFunc    func(ctx context.Context, cfg *domain.AWSConfig, bucket, key string) error
-	UploadObjectFunc    func(ctx context.Context, cfg *domain.AWSConfig, bucket, key, filePath string) error
-	GetPresignedURLFunc func(ctx context.Context, cfg *domain.AWSConfig, bucket, key string) (string, error)
-	DownloadObjectFunc  func(ctx context.Context, cfg *domain.AWSConfig, bucket, key, destPath string) error
+	ListBucketsFunc            func(ctx context.Context, cfg *domain.AWSConfig) ([]domain.S3Bucket, error)
+	ListObjectsFunc            func(ctx context.Context, cfg *domain.AWSConfig, bucket, prefix string) ([]domain.S3Object, error)
+	DeleteObjectFunc           func(ctx context.Context, cfg *domain.AWSConfig, bucket, key string) error
+	DeleteBucketFunc           func(ctx context.Context, cfg *domain.AWSConfig, bucket string) error
+	CreateBucketFunc           func(ctx context.Context, cfg *domain.AWSConfig, name string) error
+	CreateFolderFunc           func(ctx context.Context, cfg *domain.AWSConfig, bucket, key string) error
+	UploadObjectFunc           func(ctx context.Context, cfg *domain.AWSConfig, bucket, key, filePath string) error
+	UploadObjectWithMetadataFunc func(ctx context.Context, cfg *domain.AWSConfig, bucket, key, filePath string, metadata map[string]string) error
+	GetPresignedURLFunc        func(ctx context.Context, cfg *domain.AWSConfig, bucket, key string) (string, error)
+	DownloadObjectFunc         func(ctx context.Context, cfg *domain.AWSConfig, bucket, key, destPath string) error
+	HeadObjectFunc             func(ctx context.Context, cfg *domain.AWSConfig, bucket, key string) (string, map[string]string, error)
 }
 
 func (m *MockS3Manager) ListBuckets(ctx context.Context, cfg *domain.AWSConfig) ([]domain.S3Bucket, error) {
@@ -91,6 +93,20 @@ func (m *MockS3Manager) GetPresignedURL(ctx context.Context, cfg *domain.AWSConf
 		return m.GetPresignedURLFunc(ctx, cfg, bucket, key)
 	}
 	return "", nil
+}
+
+func (m *MockS3Manager) UploadObjectWithMetadata(ctx context.Context, cfg *domain.AWSConfig, bucket, key, filePath string, metadata map[string]string) error {
+	if m.UploadObjectWithMetadataFunc != nil {
+		return m.UploadObjectWithMetadataFunc(ctx, cfg, bucket, key, filePath, metadata)
+	}
+	return nil
+}
+
+func (m *MockS3Manager) HeadObject(ctx context.Context, cfg *domain.AWSConfig, bucket, key string) (string, map[string]string, error) {
+	if m.HeadObjectFunc != nil {
+		return m.HeadObjectFunc(ctx, cfg, bucket, key)
+	}
+	return "", nil, nil
 }
 
 func (m *MockS3Manager) DownloadObject(ctx context.Context, cfg *domain.AWSConfig, bucket, key, destPath string) error {

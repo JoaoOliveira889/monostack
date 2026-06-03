@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/sns"
@@ -21,17 +22,6 @@ const filterPolicyScopeAttribute = "FilterPolicyScope"
 
 func NewSNSAdapter() *SNSAdapter {
 	return &SNSAdapter{}
-}
-
-func normalizeFilterScope(scope string) (string, error) {
-	switch strings.ToLower(strings.TrimSpace(scope)) {
-	case "", domain.SubscriptionFilterScopeMessageAttributes:
-		return domain.SubscriptionFilterScopeMessageAttributes, nil
-	case domain.SubscriptionFilterScopeMessageBody:
-		return domain.SubscriptionFilterScopeMessageBody, nil
-	default:
-		return "", fmt.Errorf("invalid filter_scope %q", scope)
-	}
 }
 
 func parseSubscriptionAttributes(sub domain.SNSSubscription, attrs map[string]string) domain.SNSSubscription {
@@ -159,21 +149,36 @@ func (a *SNSAdapter) ListSubscriptions(ctx context.Context, cfg *domain.AWSConfi
 		return nil, fmt.Errorf("failed to list subscriptions for topic %s: %w", topicARN, err)
 	}
 
-	var subs []domain.SNSSubscription
-	for _, s := range out.Subscriptions {
-		sub := domain.SNSSubscription{
+	subs := make([]domain.SNSSubscription, len(out.Subscriptions))
+	for i, s := range out.Subscriptions {
+		subs[i] = domain.SNSSubscription{
 			ARN:      aws.ToString(s.SubscriptionArn),
 			TopicARN: aws.ToString(s.TopicArn),
 			Protocol: aws.ToString(s.Protocol),
 			Endpoint: aws.ToString(s.Endpoint),
 		}
-		if attrs, attrErr := client.GetSubscriptionAttributes(ctx, &sns.GetSubscriptionAttributesInput{
-			SubscriptionArn: aws.String(sub.ARN),
-		}); attrErr == nil {
-			sub = parseSubscriptionAttributes(sub, attrs.Attributes)
-		}
-		subs = append(subs, sub)
 	}
+
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, 8)
+	for i := range subs {
+		if subs[i].ARN == "" {
+			continue
+		}
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			if attrs, attrErr := client.GetSubscriptionAttributes(ctx, &sns.GetSubscriptionAttributesInput{
+				SubscriptionArn: aws.String(subs[idx].ARN),
+			}); attrErr == nil {
+				subs[idx] = parseSubscriptionAttributes(subs[idx], attrs.Attributes)
+			}
+		}(i)
+	}
+	wg.Wait()
+
 	return subs, nil
 }
 
@@ -204,18 +209,12 @@ func (a *SNSAdapter) ListAllSubscriptions(ctx context.Context, cfg *domain.AWSCo
 		}
 
 		for _, s := range out.Subscriptions {
-			sub := domain.SNSSubscription{
+			allSubs = append(allSubs, domain.SNSSubscription{
 				ARN:      aws.ToString(s.SubscriptionArn),
 				TopicARN: aws.ToString(s.TopicArn),
 				Protocol: aws.ToString(s.Protocol),
 				Endpoint: aws.ToString(s.Endpoint),
-			}
-			if attrs, attrErr := client.GetSubscriptionAttributes(ctx, &sns.GetSubscriptionAttributesInput{
-				SubscriptionArn: aws.String(sub.ARN),
-			}); attrErr == nil {
-				sub = parseSubscriptionAttributes(sub, attrs.Attributes)
-			}
-			allSubs = append(allSubs, sub)
+			})
 		}
 
 		if out.NextToken == nil {
@@ -223,6 +222,26 @@ func (a *SNSAdapter) ListAllSubscriptions(ctx context.Context, cfg *domain.AWSCo
 		}
 		nextToken = out.NextToken
 	}
+
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, 8)
+	for i := range allSubs {
+		if allSubs[i].ARN == "" {
+			continue
+		}
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			if attrs, attrErr := client.GetSubscriptionAttributes(ctx, &sns.GetSubscriptionAttributesInput{
+				SubscriptionArn: aws.String(allSubs[idx].ARN),
+			}); attrErr == nil {
+				allSubs[idx] = parseSubscriptionAttributes(allSubs[idx], attrs.Attributes)
+			}
+		}(i)
+	}
+	wg.Wait()
 
 	return allSubs, nil
 }
@@ -277,7 +296,7 @@ func (a *SNSAdapter) DeleteTopic(ctx context.Context, cfg *domain.AWSConfig, top
 func (a *SNSAdapter) CreateSubscription(ctx context.Context, cfg *domain.AWSConfig, topicARN string, protocol string, endpoint string, filterPolicy map[string][]string, filterScope string) (domain.SNSSubscription, error) {
 	if cfg.UseMock {
 		subARN := fmt.Sprintf("%s:sub-mock-%d", topicARN, len(filterPolicy))
-		normalizedScope, err := normalizeFilterScope(filterScope)
+		normalizedScope, err := domain.NormalizeFilterScopeStrict(filterScope)
 		if err != nil {
 			return domain.SNSSubscription{}, err
 		}
@@ -296,7 +315,7 @@ func (a *SNSAdapter) CreateSubscription(ctx context.Context, cfg *domain.AWSConf
 	}
 
 	client := sns.NewFromConfig(awsCfg)
-	normalizedScope, err := normalizeFilterScope(filterScope)
+	normalizedScope, err := domain.NormalizeFilterScopeStrict(filterScope)
 	if err != nil {
 		return domain.SNSSubscription{}, err
 	}

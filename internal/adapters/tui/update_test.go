@@ -841,8 +841,7 @@ func TestUpdate_SQSPurgeAllHandling(t *testing.T) {
 		t.Fatal("expected purge-all modal to open")
 	}
 
-	model.sqsPurgeAllInput.SetValue("purge all")
-	resultEnter, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	resultEnter, cmd := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
 	modelEnter, ok := resultEnter.(Model)
 	if !ok {
 		t.Fatalf("expected Model, got %T", resultEnter)

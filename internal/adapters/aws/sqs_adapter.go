@@ -82,39 +82,50 @@ func (a *SQSAdapter) ListQueues(ctx context.Context, cfg *domain.AWSConfig) ([]d
 	}
 
 	client := sqs.NewFromConfig(awsCfg)
-	out, err := client.ListQueues(ctx, &sqs.ListQueuesInput{})
-	if err != nil {
-		return nil, fmt.Errorf("failed to list queues: %w", err)
-	}
-
 	var queues []domain.SQSQueue
-	for _, qURL := range out.QueueUrls {
-		name := qURL[strings.LastIndex(qURL, "/")+1:]
+	var nextToken *string
 
-		attrOut, err := client.GetQueueAttributes(ctx, &sqs.GetQueueAttributesInput{
-			QueueUrl: aws.String(qURL),
-			AttributeNames: []types.QueueAttributeName{
-				types.QueueAttributeNameApproximateNumberOfMessages,
-				types.QueueAttributeNameApproximateNumberOfMessagesDelayed,
-				types.QueueAttributeNameApproximateNumberOfMessagesNotVisible,
-			},
+	for {
+		out, err := client.ListQueues(ctx, &sqs.ListQueuesInput{
+			NextToken: nextToken,
 		})
-
-		var avail, delayed, notVis int
-		if err == nil {
-			avail, _ = strconv.Atoi(attrOut.Attributes[string(types.QueueAttributeNameApproximateNumberOfMessages)])
-			delayed, _ = strconv.Atoi(attrOut.Attributes[string(types.QueueAttributeNameApproximateNumberOfMessagesDelayed)])
-			notVis, _ = strconv.Atoi(attrOut.Attributes[string(types.QueueAttributeNameApproximateNumberOfMessagesNotVisible)])
+		if err != nil {
+			return nil, fmt.Errorf("failed to list queues: %w", err)
 		}
 
-		queues = append(queues, domain.SQSQueue{
-			URL:                qURL,
-			ARN:                domain.QueueARNFromURL(qURL, cfg.Region),
-			Name:               name,
-			MessagesAvailable:  avail,
-			MessagesDelayed:    delayed,
-			MessagesNotVisible: notVis,
-		})
+		for _, qURL := range out.QueueUrls {
+			name := qURL[strings.LastIndex(qURL, "/")+1:]
+
+			attrOut, attrErr := client.GetQueueAttributes(ctx, &sqs.GetQueueAttributesInput{
+				QueueUrl: aws.String(qURL),
+				AttributeNames: []types.QueueAttributeName{
+					types.QueueAttributeNameApproximateNumberOfMessages,
+					types.QueueAttributeNameApproximateNumberOfMessagesDelayed,
+					types.QueueAttributeNameApproximateNumberOfMessagesNotVisible,
+				},
+			})
+
+			var avail, delayed, notVis int
+			if attrErr == nil {
+				avail, _ = strconv.Atoi(attrOut.Attributes[string(types.QueueAttributeNameApproximateNumberOfMessages)])
+				delayed, _ = strconv.Atoi(attrOut.Attributes[string(types.QueueAttributeNameApproximateNumberOfMessagesDelayed)])
+				notVis, _ = strconv.Atoi(attrOut.Attributes[string(types.QueueAttributeNameApproximateNumberOfMessagesNotVisible)])
+			}
+
+			queues = append(queues, domain.SQSQueue{
+				URL:                qURL,
+				ARN:                domain.QueueARNFromURL(qURL, cfg.Region),
+				Name:               name,
+				MessagesAvailable:  avail,
+				MessagesDelayed:    delayed,
+				MessagesNotVisible: notVis,
+			})
+		}
+
+		if out.NextToken == nil || *out.NextToken == "" {
+			break
+		}
+		nextToken = out.NextToken
 	}
 
 	return queues, nil

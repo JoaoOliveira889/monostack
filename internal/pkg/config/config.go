@@ -10,26 +10,26 @@ import (
 	"monostack/internal/domain"
 )
 
-const defaultPanelRatio = 0.5
+const DefaultPanelRatio = 0.5
 
-func normalizePanelRatio(value float64) float64 {
+func NormalizePanelRatio(value float64) float64 {
 	if math.IsNaN(value) || math.IsInf(value, 0) {
-		return defaultPanelRatio
+		return DefaultPanelRatio
 	}
 	if value <= 0.05 || value >= 0.95 {
-		return defaultPanelRatio
+		return DefaultPanelRatio
 	}
 	return value
 }
 
-func clonePanelRatios(values map[string]float64) map[string]float64 {
+func ClonePanelRatios(values map[string]float64) map[string]float64 {
 	if len(values) == 0 {
 		return nil
 	}
 
 	cloned := make(map[string]float64, len(values))
 	for key, value := range values {
-		cloned[key] = normalizePanelRatio(value)
+		cloned[key] = NormalizePanelRatio(value)
 	}
 	return cloned
 }
@@ -56,7 +56,7 @@ func (s *FileConfigStore) Load() (*domain.AWSConfig, error) {
 			EndpointURL:     "http://localhost:4566",
 			Region:          "us-east-1",
 			UseMock:         false,
-			LeftPanelRatio:  defaultPanelRatio,
+			LeftPanelRatio:  DefaultPanelRatio,
 			EnabledServices: domain.DefaultEnabledServices(),
 			SnapshotPath:    "",
 		}
@@ -74,8 +74,8 @@ func (s *FileConfigStore) Load() (*domain.AWSConfig, error) {
 		return nil, err
 	}
 
-	cfg.LeftPanelRatio = normalizePanelRatio(cfg.LeftPanelRatio)
-	cfg.PanelRatios = clonePanelRatios(cfg.PanelRatios)
+	cfg.LeftPanelRatio = NormalizePanelRatio(cfg.LeftPanelRatio)
+	cfg.PanelRatios = ClonePanelRatios(cfg.PanelRatios)
 	cfg.EnabledServices = domain.NormalizeEnabledServices(cfg.EnabledServices)
 
 	if cfg.SnapshotPath == "" {
@@ -88,8 +88,8 @@ func (s *FileConfigStore) Load() (*domain.AWSConfig, error) {
 func (s *FileConfigStore) Save(cfg *domain.AWSConfig) error {
 	if cfg != nil {
 		cfg.EnabledServices = domain.NormalizeEnabledServices(cfg.EnabledServices)
-		cfg.LeftPanelRatio = normalizePanelRatio(cfg.LeftPanelRatio)
-		cfg.PanelRatios = clonePanelRatios(cfg.PanelRatios)
+		cfg.LeftPanelRatio = NormalizePanelRatio(cfg.LeftPanelRatio)
+		cfg.PanelRatios = ClonePanelRatios(cfg.PanelRatios)
 	}
 	dir := filepath.Dir(s.filePath)
 	if err := os.MkdirAll(dir, 0750); err != nil {

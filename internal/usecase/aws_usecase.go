@@ -53,6 +53,14 @@ func (uc *AWSUseCase) UploadS3Object(ctx context.Context, cfg *domain.AWSConfig,
 	return uc.s3.UploadObject(ctx, cfg, bucket, key, filePath)
 }
 
+func (uc *AWSUseCase) UploadS3ObjectWithMetadata(ctx context.Context, cfg *domain.AWSConfig, bucket string, key string, filePath string, metadata map[string]string) error {
+	return uc.s3.UploadObjectWithMetadata(ctx, cfg, bucket, key, filePath, metadata)
+}
+
+func (uc *AWSUseCase) HeadS3Object(ctx context.Context, cfg *domain.AWSConfig, bucket string, key string) (string, map[string]string, error) {
+	return uc.s3.HeadObject(ctx, cfg, bucket, key)
+}
+
 func (uc *AWSUseCase) GetS3PresignedURL(ctx context.Context, cfg *domain.AWSConfig, bucket string, key string) (string, error) {
 	return uc.s3.GetPresignedURL(ctx, cfg, bucket, key)
 }

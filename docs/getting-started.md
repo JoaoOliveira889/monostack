@@ -1,6 +1,6 @@
 # Getting Started
 
-Current release: [0.0.4](https://github.com/JoaoOliveira889/monostack)
+Current release: [0.0.5](https://github.com/JoaoOliveira889/monostack)
 
 ## Installation
 

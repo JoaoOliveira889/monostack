@@ -2,6 +2,8 @@ package aws
 
 import (
 	"context"
+	"fmt"
+	"os"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -28,6 +30,9 @@ func GetSDKConfig(ctx context.Context, cfg *domain.AWSConfig) (aws.Config, error
 		}
 		if secretKey == "" {
 			secretKey = "test"
+		}
+		if keyID == "test" && secretKey == "test" && !cfg.UseMock {
+			fmt.Fprintln(os.Stderr, "monostack: WARNING: using default 'test'/'test' credentials for "+cfg.EndpointURL+"; set Access Key ID and Secret Access Key in Settings")
 		}
 		creds := credentials.NewStaticCredentialsProvider(keyID, secretKey, "")
 

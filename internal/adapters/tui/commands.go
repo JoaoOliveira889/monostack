@@ -52,17 +52,6 @@ func splitCSVList(value string) []string {
 	return items
 }
 
-func normalizeSubscriptionScope(scope string) (string, error) {
-	switch strings.ToLower(strings.TrimSpace(scope)) {
-	case "", domain.SubscriptionFilterScopeMessageBody:
-		return domain.SubscriptionFilterScopeMessageBody, nil
-	case domain.SubscriptionFilterScopeMessageAttributes:
-		return domain.SubscriptionFilterScopeMessageAttributes, nil
-	default:
-		return "", fmt.Errorf("invalid filter_scope %q", scope)
-	}
-}
-
 func normalizeSubscriptionScopeWithDefault(scope, defaultScope string) (string, error) {
 	defaultScope = strings.TrimSpace(defaultScope)
 	if defaultScope == "" {
@@ -70,9 +59,9 @@ func normalizeSubscriptionScopeWithDefault(scope, defaultScope string) (string, 
 	}
 	switch strings.ToLower(strings.TrimSpace(scope)) {
 	case "":
-		return normalizeSubscriptionScope(defaultScope)
+		return domain.NormalizeFilterScopeStrict(defaultScope)
 	case domain.SubscriptionFilterScopeMessageAttributes, domain.SubscriptionFilterScopeMessageBody:
-		return normalizeSubscriptionScope(scope)
+		return domain.NormalizeFilterScopeStrict(scope)
 	default:
 		return "", fmt.Errorf("invalid filter_scope %q", scope)
 	}
@@ -692,16 +681,6 @@ func (m *Model) updateSNSSubscriptionCmd(subARN string, filterPolicy map[string]
 			return errMsg{Error: err}
 		}
 		return snsSubscriptionUpdatedMsg{ARN: subARN}
-	}
-}
-
-func (m *Model) batchSubscribeSNSCmd(topics []toggleOption, destARN string, eventTypes []string, filterScope string) tea.Cmd {
-	return func() tea.Msg {
-		_ = topics
-		_ = destARN
-		_ = eventTypes
-		_ = filterScope
-		return errMsg{Error: fmt.Errorf("sns topic-to-topic subscriptions are not supported; subscribe the billings SQS directly to the source SNS topics")}
 	}
 }
 

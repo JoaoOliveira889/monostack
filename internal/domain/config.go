@@ -1,6 +1,9 @@
 package domain
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
 
 type AWSConfig struct {
 	ServiceName     string             `json:"service_name"`
@@ -107,3 +110,23 @@ const (
 	SubscriptionFilterScopeMessageAttributes = "message_attributes"
 	SubscriptionFilterScopeMessageBody       = "message_body"
 )
+
+func NormalizeFilterScopeStrict(scope string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(scope)) {
+	case "", SubscriptionFilterScopeMessageAttributes:
+		return SubscriptionFilterScopeMessageAttributes, nil
+	case SubscriptionFilterScopeMessageBody:
+		return SubscriptionFilterScopeMessageBody, nil
+	default:
+		return "", fmt.Errorf("invalid filter_scope %q", scope)
+	}
+}
+
+func NormalizeFilterScope(scope string) string {
+	switch strings.ToLower(strings.TrimSpace(scope)) {
+	case SubscriptionFilterScopeMessageBody:
+		return SubscriptionFilterScopeMessageBody
+	default:
+		return SubscriptionFilterScopeMessageAttributes
+	}
+}

@@ -3,7 +3,6 @@ package usecase
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -16,6 +15,8 @@ import (
 
 const snapshotFileName = "monostack-snapshot.yaml"
 
+const maxSnapshotSizeWarningBytes = 10 * 1024 * 1024
+
 type SnapshotUseCase struct {
 	aws    *AWSUseCase
 	config *ConfigUseCase
@@ -23,6 +24,29 @@ type SnapshotUseCase struct {
 
 func NewSnapshotUseCase(aws *AWSUseCase, config *ConfigUseCase) *SnapshotUseCase {
 	return &SnapshotUseCase{aws: aws, config: config}
+}
+
+func (uc *SnapshotUseCase) EstimateExportSize(ctx context.Context, cfg *domain.AWSConfig) (int64, error) {
+	buckets, err := uc.aws.ListS3Buckets(ctx, cfg)
+	if err != nil {
+		return 0, err
+	}
+	var totalSize int64
+	for _, bucket := range buckets {
+		objects, err := uc.aws.ListS3Objects(ctx, cfg, bucket.Name, "")
+		if err != nil {
+			continue
+		}
+		for _, object := range objects {
+			totalSize += (object.Size * 4) / 3
+			totalSize += 64
+		}
+	}
+	return totalSize, nil
+}
+
+func (uc *SnapshotUseCase) ShouldWarnSize(estimatedBytes int64) bool {
+	return estimatedBytes > maxSnapshotSizeWarningBytes
 }
 
 func (uc *SnapshotUseCase) Export(ctx context.Context, rawPath string) (string, error) {
@@ -97,10 +121,22 @@ func (uc *SnapshotUseCase) Import(ctx context.Context, rawPath string) (*domain.
 	return &snapshot, nil
 }
 
+func redactedConfig(cfg *domain.AWSConfig) *domain.AWSConfig {
+	if cfg == nil {
+		return nil
+	}
+	cloned := *cfg
+	cloned.SecretAccessKey = ""
+	cloned.AccessKeyID = ""
+	cloned.PanelRatios = nil
+	cloned.SnapshotPath = ""
+	return &cloned
+}
+
 func (uc *SnapshotUseCase) collectSnapshot(ctx context.Context, cfg *domain.AWSConfig) (*domain.AppProfile, error) {
 	snapshot := &domain.AppProfile{
 		Version: 2,
-		Config:  cfg,
+		Config:  redactedConfig(cfg),
 	}
 
 	subs, err := uc.config.LoadSubscriptions()
@@ -116,6 +152,9 @@ func (uc *SnapshotUseCase) collectSnapshot(ctx context.Context, cfg *domain.AWSC
 		return nil, err
 	}
 	if err := uc.collectSNSSnapshot(ctx, cfg, snapshot); err != nil {
+		return nil, err
+	}
+	if err := uc.collectSecretsSnapshot(ctx, cfg, snapshot); err != nil {
 		return nil, err
 	}
 
@@ -141,11 +180,15 @@ func (uc *SnapshotUseCase) collectS3Snapshot(ctx context.Context, cfg *domain.AW
 				return fmt.Errorf("bucket %s object %s: %w", bucket.Name, object.Key, err)
 			}
 
+			contentType, metadata, _ := uc.aws.HeadS3Object(ctx, cfg, bucket.Name, object.Key)
+
 			bucketSnapshot.Objects = append(bucketSnapshot.Objects, domain.S3ObjectSnapshot{
 				Key:           object.Key,
 				Size:          object.Size,
 				LastModified:  object.LastModified,
 				ContentBase64: base64.StdEncoding.EncodeToString(content),
+				ContentType:   contentType,
+				Metadata:      metadata,
 			})
 		}
 		snapshot.S3 = append(snapshot.S3, bucketSnapshot)
@@ -197,6 +240,31 @@ func (uc *SnapshotUseCase) collectSNSSnapshot(ctx context.Context, cfg *domain.A
 	return nil
 }
 
+func (uc *SnapshotUseCase) collectSecretsSnapshot(ctx context.Context, cfg *domain.AWSConfig, snapshot *domain.AppProfile) error {
+	secrets, err := uc.aws.ListSecrets(ctx, cfg)
+	if err != nil {
+		return err
+	}
+
+	for _, secret := range secrets {
+		secretSnapshot := domain.SecretSnapshot{
+			Name:        secret.Name,
+			Description: secret.Description,
+			KMSKeyID:    secret.KMSKeyID,
+		}
+
+		val, valErr := uc.aws.GetSecretValue(ctx, cfg, secret.ARN, "", "")
+		if valErr == nil {
+			secretSnapshot.SecretString = val.SecretString
+			secretSnapshot.SecretBinaryB64 = val.SecretBinaryBase64
+		}
+
+		snapshot.Secrets = append(snapshot.Secrets, secretSnapshot)
+	}
+
+	return nil
+}
+
 func (uc *SnapshotUseCase) applySnapshot(ctx context.Context, cfg *domain.AWSConfig, snapshot *domain.AppProfile) error {
 	if err := uc.applyS3Snapshot(ctx, cfg, snapshot.S3); err != nil {
 		return err
@@ -234,7 +302,7 @@ func (uc *SnapshotUseCase) applySnapshot(ctx context.Context, cfg *domain.AWSCon
 				continue
 			}
 
-			created, err := uc.aws.CreateSNSSubscription(ctx, cfg, sourceARN, sub.Protocol, destEndpoint, sub.FilterPolicy, normalizeFilterScopeOrDefault(sub.FilterScope))
+			created, err := uc.aws.CreateSNSSubscription(ctx, cfg, sourceARN, sub.Protocol, destEndpoint, sub.FilterPolicy, domain.NormalizeFilterScope(sub.FilterScope))
 			if err != nil {
 				return fmt.Errorf("failed to recreate subscription for %s: %w", sourceARN, err)
 			}
@@ -256,6 +324,10 @@ func (uc *SnapshotUseCase) applySnapshot(ctx context.Context, cfg *domain.AWSCon
 	}
 
 	if err := uc.config.SaveSubscriptions(importedSubs); err != nil {
+		return err
+	}
+
+	if err := uc.applySecretsSnapshot(ctx, cfg, snapshot.Secrets); err != nil {
 		return err
 	}
 
@@ -296,11 +368,46 @@ func (uc *SnapshotUseCase) applyS3Snapshot(ctx context.Context, cfg *domain.AWSC
 				_ = os.Remove(tmpPath)
 				return err
 			}
-			if err := uc.aws.UploadS3Object(ctx, cfg, bucket.Name, object.Key, tmpPath); err != nil {
+			if len(object.Metadata) > 0 {
+				err = uc.aws.UploadS3ObjectWithMetadata(ctx, cfg, bucket.Name, object.Key, tmpPath, object.Metadata)
+			} else {
+				err = uc.aws.UploadS3Object(ctx, cfg, bucket.Name, object.Key, tmpPath)
+			}
+			if err != nil {
 				_ = os.Remove(tmpPath)
 				return err
 			}
 			_ = os.Remove(tmpPath)
+		}
+	}
+
+	return nil
+}
+
+func (uc *SnapshotUseCase) applySecretsSnapshot(ctx context.Context, cfg *domain.AWSConfig, secrets []domain.SecretSnapshot) error {
+	existingSecrets, err := uc.aws.ListSecrets(ctx, cfg)
+	if err != nil {
+		return err
+	}
+
+	existingByName := make(map[string]struct{}, len(existingSecrets))
+	for _, s := range existingSecrets {
+		existingByName[s.Name] = struct{}{}
+	}
+
+	for _, s := range secrets {
+		if _, ok := existingByName[s.Name]; ok {
+			continue
+		}
+		secretValue := s.SecretString
+		if secretValue == "" && s.SecretBinaryB64 != "" {
+			secretValue = s.SecretBinaryB64
+		}
+		if secretValue == "" {
+			secretValue = "placeholder-value"
+		}
+		if _, err := uc.aws.CreateSecret(ctx, cfg, s.Name, secretValue, s.Description); err != nil {
+			return fmt.Errorf("failed to recreate secret %q: %w", s.Name, err)
 		}
 	}
 
@@ -388,44 +495,6 @@ func (uc *SnapshotUseCase) applySNSTopics(ctx context.Context, cfg *domain.AWSCo
 	return resolved, nil
 }
 
-func (uc *SnapshotUseCase) ensureQueuePolicy(ctx context.Context, cfg *domain.AWSConfig, queueURL, queueARN, topicARN string) error {
-	attrs, err := uc.aws.GetSQSQueueAttributes(ctx, cfg, queueURL, []string{"Policy"})
-	if err != nil {
-		attrs = map[string]string{}
-	}
-
-	policy := sqsQueuePolicy{Version: "2012-10-17"}
-	if raw := attrs["Policy"]; raw != "" {
-		_ = json.Unmarshal([]byte(raw), &policy)
-	}
-
-	if hasTopicPolicy(policy, topicARN) {
-		return nil
-	}
-
-	policy.Statement = append(policy.Statement, sqsQueuePolicyStatement{
-		Sid:       sanitizePolicySID(topicARN),
-		Effect:    "Allow",
-		Principal: map[string]string{"Service": "sns.amazonaws.com"},
-		Action:    "SQS:SendMessage",
-		Resource:  queueARN,
-		Condition: map[string]map[string]string{
-			"ArnEquals": {
-				"aws:SourceArn": topicARN,
-			},
-		},
-	})
-
-	payload, err := json.Marshal(policy)
-	if err != nil {
-		return err
-	}
-
-	return uc.aws.SetSQSQueueAttributes(ctx, cfg, queueURL, map[string]string{
-		"Policy": string(payload),
-	})
-}
-
 func (uc *SnapshotUseCase) downloadS3ObjectBytes(ctx context.Context, cfg *domain.AWSConfig, bucket, key string) ([]byte, error) {
 	tmpFile, err := os.CreateTemp("", "monostack-s3-export-*")
 	if err != nil {
@@ -462,11 +531,11 @@ func resolveSnapshotPathForRead(rawPath string) (string, error) {
 }
 
 func defaultSnapshotPath() string {
-	exe, err := os.Executable()
+	home, err := os.UserHomeDir()
 	if err != nil {
-		exe = "."
+		home = "."
 	}
-	return filepath.Join(filepath.Dir(exe), snapshotFileName)
+	return filepath.Join(home, ".config", "monostack", snapshotFileName)
 }
 
 func DefaultSnapshotPath() string {
@@ -518,17 +587,6 @@ func normalizeSubscriptionEndpoint(protocol, endpoint string, queueMap map[strin
 
 func normalizeManagedDestinationARN(destinationARN string, queueMap map[string]domain.SQSQueueSnapshot) string {
 	return normalizeSubscriptionEndpoint("sqs", destinationARN, queueMap)
-}
-
-func normalizeFilterScopeOrDefault(scope string) string {
-	switch strings.ToLower(strings.TrimSpace(scope)) {
-	case domain.SubscriptionFilterScopeMessageBody:
-		return domain.SubscriptionFilterScopeMessageBody
-	case domain.SubscriptionFilterScopeMessageAttributes:
-		return domain.SubscriptionFilterScopeMessageAttributes
-	default:
-		return domain.SubscriptionFilterScopeMessageBody
-	}
 }
 
 func destinationTypeToProtocol(destinationType string) string {

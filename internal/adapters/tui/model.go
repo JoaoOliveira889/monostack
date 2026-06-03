@@ -111,7 +111,6 @@ type Model struct {
 	sqsDeleteQueueName   string
 
 	showSqsPurgeAllConfirm bool
-	sqsPurgeAllInput       textinput.Model
 
 	showSqsCreateModal bool
 	sqsCreateInput     textinput.Model
@@ -151,7 +150,9 @@ type Model struct {
 	showSecretUpdateModal      bool
 	showSecretDeleteConfirm    bool
 	showSecretRestoreConfirm   bool
-	showSecretPromoteConfirm   bool
+	showSecretPromoteConfirm       bool
+	showSecretClipboardConfirm     bool
+	secretClipboardText            string
 	showSecretValueModal       bool
 	secretCreateStep           int
 	secretUpdateStep           int
@@ -246,6 +247,7 @@ func (m *Model) cancelSpecialModes() {
 	m.showPeekModal = false
 	m.showExportModal = false
 	m.showImportModal = false
+	m.showSecretClipboardConfirm = false
 	m.clearSelection()
 }
 
@@ -406,10 +408,6 @@ func NewModel(awsUseCase *usecase.AWSUseCase, configUseCase *usecase.ConfigUseCa
 	sqsCInput.Placeholder = "queue-name"
 	sqsCInput.Width = 50
 
-	sqsPurgeAllInput := textinput.New()
-	sqsPurgeAllInput.Placeholder = "purge all"
-	sqsPurgeAllInput.Width = 24
-
 	subEventInput := textinput.New()
 	subEventInput.Placeholder = "pix_received, pix_sent (or leave empty for all)"
 	subEventInput.Width = 50
@@ -480,7 +478,6 @@ func NewModel(awsUseCase *usecase.AWSUseCase, configUseCase *usecase.ConfigUseCa
 		s3UploadKeyInput:        s3UploadKey,
 		s3FolderInput:           s3FolderInput,
 		sqsCreateInput:          sqsCInput,
-		sqsPurgeAllInput:        sqsPurgeAllInput,
 		snsSimpleSubEventInput:  subEventInput,
 		snsSubEditInput:         subEditInput,
 		snsYamlImportTextarea:   yamlTA,

@@ -93,21 +93,21 @@ func TestSplitCSVList(t *testing.T) {
 	}
 }
 
-func TestNormalizeSubscriptionScope(t *testing.T) {
-	scope, err := normalizeSubscriptionScope("")
+func TestNormalizeFilterScopeStrict(t *testing.T) {
+	scope, err := domain.NormalizeFilterScopeStrict("")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if scope != domain.SubscriptionFilterScopeMessageBody {
-		t.Fatalf("expected default scope %q, got %q", domain.SubscriptionFilterScopeMessageBody, scope)
+	if scope != domain.SubscriptionFilterScopeMessageAttributes {
+		t.Fatalf("expected default scope %q, got %q", domain.SubscriptionFilterScopeMessageAttributes, scope)
 	}
 
-	scope, err = normalizeSubscriptionScope(domain.SubscriptionFilterScopeMessageBody)
+	scope, err = domain.NormalizeFilterScopeStrict(domain.SubscriptionFilterScopeMessageAttributes)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if scope != domain.SubscriptionFilterScopeMessageBody {
-		t.Fatalf("expected scope %q, got %q", domain.SubscriptionFilterScopeMessageBody, scope)
+	if scope != domain.SubscriptionFilterScopeMessageAttributes {
+		t.Fatalf("expected scope %q, got %q", domain.SubscriptionFilterScopeMessageAttributes, scope)
 	}
 }
 

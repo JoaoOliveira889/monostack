@@ -8,13 +8,12 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"monostack/internal/domain"
+	"monostack/internal/pkg/config"
 	"monostack/internal/usecase"
 )
 
 const (
 	panelRatioDefault = 0.5
-	panelRatioMin     = 0.1
-	panelRatioMax     = 0.9
 )
 
 func serviceKeyForPanel(panel activePanel) string {
@@ -32,45 +31,26 @@ func serviceKeyForPanel(panel activePanel) string {
 	}
 }
 
-func normalizePanelRatio(value float64) float64 {
-	if value < panelRatioMin || value > panelRatioMax {
-		return panelRatioDefault
-	}
-	return value
-}
-
-func clonePanelRatios(values map[string]float64) map[string]float64 {
-	if len(values) == 0 {
-		return nil
-	}
-
-	cloned := make(map[string]float64, len(values))
-	for key, value := range values {
-		cloned[key] = normalizePanelRatio(value)
-	}
-	return cloned
-}
-
 func (m Model) panelRatioFor(panel activePanel) float64 {
 	if panel == panelConfig {
-		return panelRatioDefault
+		return config.DefaultPanelRatio
 	}
 	if m.config == nil {
-		return panelRatioDefault
+		return config.DefaultPanelRatio
 	}
 
 	key := serviceKeyForPanel(panel)
 	if key == "" {
-		return panelRatioDefault
+		return config.DefaultPanelRatio
 	}
 
 	if m.config.PanelRatios != nil {
 		if value, ok := m.config.PanelRatios[key]; ok {
-			return normalizePanelRatio(value)
+			return config.NormalizePanelRatio(value)
 		}
 	}
 
-	return panelRatioDefault
+	return config.DefaultPanelRatio
 }
 
 func (m *Model) syncActivePanelRatio() {
@@ -81,7 +61,7 @@ func (m *Model) syncActivePanelRatio() {
 }
 
 func (m *Model) setActivePanelRatio(ratio float64) {
-	ratio = normalizePanelRatio(ratio)
+	ratio = config.NormalizePanelRatio(ratio)
 	m.leftPanelRatio = ratio
 	if m.config == nil {
 		return
@@ -286,7 +266,7 @@ func (m Model) configFromSettingsInputs() *domain.AWSConfig {
 	}
 
 	if m.config != nil {
-		cfg.PanelRatios = clonePanelRatios(m.config.PanelRatios)
+		cfg.PanelRatios = config.ClonePanelRatios(m.config.PanelRatios)
 	}
 
 	return cfg

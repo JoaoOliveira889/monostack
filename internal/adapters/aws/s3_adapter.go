@@ -69,21 +69,31 @@ func (a *S3Adapter) ListObjects(ctx context.Context, cfg *domain.AWSConfig, buck
 	}
 
 	client := s3.NewFromConfig(awsCfg)
-	out, err := client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
-		Bucket: aws.String(bucket),
-		Prefix: aws.String(prefix),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to list objects: %w", err)
-	}
-
 	var objects []domain.S3Object
-	for _, o := range out.Contents {
-		objects = append(objects, domain.S3Object{
-			Key:          aws.ToString(o.Key),
-			Size:         aws.ToInt64(o.Size),
-			LastModified: aws.ToTime(o.LastModified).Format(time.RFC3339),
+	var continuationToken *string
+
+	for {
+		out, err := client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
+			Bucket:            aws.String(bucket),
+			Prefix:            aws.String(prefix),
+			ContinuationToken: continuationToken,
 		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to list objects: %w", err)
+		}
+
+		for _, o := range out.Contents {
+			objects = append(objects, domain.S3Object{
+				Key:          aws.ToString(o.Key),
+				Size:         aws.ToInt64(o.Size),
+				LastModified: aws.ToTime(o.LastModified).Format(time.RFC3339),
+			})
+		}
+
+		if out.NextContinuationToken == nil || *out.NextContinuationToken == "" {
+			break
+		}
+		continuationToken = out.NextContinuationToken
 	}
 	return objects, nil
 }
@@ -201,15 +211,105 @@ func (a *S3Adapter) UploadObject(ctx context.Context, cfg *domain.AWSConfig, buc
 	defer file.Close()
 
 	client := s3.NewFromConfig(awsCfg)
-	_, err = client.PutObject(ctx, &s3.PutObjectInput{
+	input := &s3.PutObjectInput{
 		Bucket: aws.String(bucket),
 		Key:    aws.String(key),
 		Body:   file,
-	})
+	}
+
+	_, err = client.PutObject(ctx, input)
 	if err != nil {
 		return fmt.Errorf("failed to upload object: %w", err)
 	}
 	return nil
+}
+
+func (a *S3Adapter) UploadObjectWithMetadata(ctx context.Context, cfg *domain.AWSConfig, bucket string, key string, filePath string, metadata map[string]string) error {
+	if cfg.UseMock {
+		return nil
+	}
+
+	awsCfg, err := GetSDKConfig(ctx, cfg)
+	if err != nil {
+		return fmt.Errorf("failed to load AWS config: %w", err)
+	}
+
+	cleanPath := filepath.Clean(filePath)
+	if strings.Contains(cleanPath, "..") {
+		return fmt.Errorf("invalid file path: %s", filePath)
+	}
+
+	file, err := os.Open(cleanPath)
+	if err != nil {
+		return fmt.Errorf("failed to open local file: %w", err)
+	}
+	defer file.Close()
+
+	client := s3.NewFromConfig(awsCfg)
+	input := &s3.PutObjectInput{
+		Bucket:   aws.String(bucket),
+		Key:      aws.String(key),
+		Body:     file,
+		Metadata: metadata,
+	}
+
+	ext := strings.ToLower(strings.TrimPrefix(filepath.Ext(key), "."))
+	if ct, ok := commonContentTypes[ext]; ok {
+		input.ContentType = aws.String(ct)
+	}
+
+	_, err = client.PutObject(ctx, input)
+	if err != nil {
+		return fmt.Errorf("failed to upload object with metadata: %w", err)
+	}
+	return nil
+}
+
+func (a *S3Adapter) HeadObject(ctx context.Context, cfg *domain.AWSConfig, bucket string, key string) (string, map[string]string, error) {
+	if cfg.UseMock {
+		return "", nil, nil
+	}
+
+	awsCfg, err := GetSDKConfig(ctx, cfg)
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to load AWS config: %w", err)
+	}
+
+	client := s3.NewFromConfig(awsCfg)
+	out, err := client.HeadObject(ctx, &s3.HeadObjectInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		return "", nil, err
+	}
+
+	metadata := make(map[string]string, len(out.Metadata))
+	for k, v := range out.Metadata {
+		metadata[k] = v
+	}
+
+	return aws.ToString(out.ContentType), metadata, nil
+}
+
+var commonContentTypes = map[string]string{
+	"html":  "text/html",
+	"css":   "text/css",
+	"js":    "application/javascript",
+	"json":  "application/json",
+	"png":   "image/png",
+	"jpg":   "image/jpeg",
+	"jpeg":  "image/jpeg",
+	"gif":   "image/gif",
+	"svg":   "image/svg+xml",
+	"pdf":   "application/pdf",
+	"txt":   "text/plain",
+	"xml":   "application/xml",
+	"yaml":  "application/x-yaml",
+	"yml":   "application/x-yaml",
+	"csv":   "text/csv",
+	"zip":   "application/zip",
+	"gz":    "application/gzip",
 }
 
 func (a *S3Adapter) GetPresignedURL(ctx context.Context, cfg *domain.AWSConfig, bucket string, key string) (string, error) {

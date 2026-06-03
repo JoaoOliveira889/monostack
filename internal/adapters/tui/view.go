@@ -156,6 +156,12 @@ func (m Model) View() string {
 		)
 	}
 
+	if m.showSecretClipboardConfirm {
+		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
+			m.styles.Modal.Render(m.renderSecretClipboardConfirmModal()),
+		)
+	}
+
 	if m.showSecretCreateModal {
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
 			m.styles.Modal.Render(m.renderSecretCreateModal()),

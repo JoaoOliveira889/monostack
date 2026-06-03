@@ -201,6 +201,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.allSubscriptions = msg.AllSubscriptions
 		m.loading = false
 		m.errorMsg = ""
+		if len(m.topics) > 0 && m.selectedTopicIndex >= len(m.topics) {
+			m.selectedTopicIndex = 0
+		}
 		if len(m.topics) > 0 && m.selectedTopicIndex < len(m.topics) {
 			return m, tea.Batch(
 				m.loadSNSSubscriptionsCmd(m.topics[m.selectedTopicIndex].ARN),
@@ -395,6 +398,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case profileExportedMsg:
 		m.loading = false
 		m.appendCommandLog("export snapshot", msg.Path, "snapshot exported", nil)
+		if m.config != nil {
+			m.config.SnapshotPath = msg.Path
+		}
 		return m, m.setStatusMessage(fmt.Sprintf("Snapshot exported to %s", msg.Path))
 
 	case profileImportedMsg:
@@ -593,28 +599,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		if m.showSqsPurgeAllConfirm {
 			switch msg.String() {
-			case "esc":
-				m.showSqsPurgeAllConfirm = false
-				m.sqsPurgeAllInput.Blur()
-				m.sqsPurgeAllInput.SetValue("")
-				return m, nil
-			case "enter":
-				if strings.EqualFold(strings.TrimSpace(m.sqsPurgeAllInput.Value()), "purge all") {
-					queueURLs := make([]string, 0, len(m.queues))
-					for _, queue := range m.queues {
-						queueURLs = append(queueURLs, queue.URL)
-					}
-					m.showSqsPurgeAllConfirm = false
-					m.sqsPurgeAllInput.Blur()
-					m.sqsPurgeAllInput.SetValue("")
-					m.loading = true
-					return m, m.purgeSQSQueuesCmd(queueURLs)
+			case "y", "Y":
+				queueURLs := make([]string, 0, len(m.queues))
+				for _, queue := range m.queues {
+					queueURLs = append(queueURLs, queue.URL)
 				}
-				return m, m.setErrorMessage("Type purge all to confirm")
+				m.showSqsPurgeAllConfirm = false
+				m.loading = true
+				return m, m.purgeSQSQueuesCmd(queueURLs)
 			default:
-				var cmd tea.Cmd
-				m.sqsPurgeAllInput, cmd = m.sqsPurgeAllInput.Update(msg)
-				return m, cmd
+				m.showSqsPurgeAllConfirm = false
+				return m, nil
 			}
 		}
 
@@ -781,7 +776,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.snsSimpleSubEventInput.SetValue("")
 					return m, nil
 				case "enter":
-					eventTypesStr := m.snsSimpleSubEventInput.Value()
 					m.showSnsSimpleSubModal = false
 					m.snsSimpleSubEventInput.Blur()
 					m.snsSimpleSubEventInput.SetValue("")
@@ -791,21 +785,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						return m, nil
 					}
 
-					src := m.snsSimpleSubSources[m.snsSimpleSubCursor]
-					destTopicARN := m.topics[m.selectedTopicIndex].ARN
-
-					var eventTypes []string
-					if eventTypesStr != "" {
-						eventTypes = splitCSVList(eventTypesStr)
-					}
-
-					m.loading = true
-					return m, m.batchSubscribeSNSCmd(
-						[]toggleOption{{label: src.Name, arn: src.ARN}},
-						destTopicARN,
-						eventTypes,
-						domain.SubscriptionFilterScopeMessageBody,
-					)
+					m.showSnsSimpleSubModal = false
+					return m, m.setStatusMessage("SNS topic-to-topic subscriptions are not supported; subscribe SQS queues directly")
 				default:
 					var cmd tea.Cmd
 					m.snsSimpleSubEventInput, cmd = m.snsSimpleSubEventInput.Update(msg)
@@ -844,9 +825,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				m.showSnsBatchSubModal = false
 				if len(selected) > 0 && len(m.topics) > 0 && m.selectedTopicIndex < len(m.topics) {
-					destTopicARN := m.topics[m.selectedTopicIndex].ARN
-					m.loading = true
-					return m, m.batchSubscribeSNSCmd(selected, destTopicARN, nil, domain.SubscriptionFilterScopeMessageBody)
+					m.showSnsBatchSubModal = false
+					return m, m.setStatusMessage("SNS topic-to-topic subscriptions are not supported; subscribe SQS queues directly")
 				}
 				return m, nil
 			}
@@ -1087,7 +1067,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.showSecretValueModal = false
 				return m, nil
 			case "c":
-				return m, m.copySecretValueCmd()
+				text := strings.TrimSpace(m.secretValueCopyText())
+				if text == "" {
+					return m, m.setStatusMessage("Nothing to copy")
+				}
+				m.secretClipboardText = text
+				m.showSecretClipboardConfirm = true
+				return m, nil
 			case "e", "u":
 				m.showSecretValueModal = false
 				m.showSecretUpdateModal = true
@@ -1113,6 +1099,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			var cmd tea.Cmd
 			m.secretValueViewport, cmd = m.secretValueViewport.Update(msg)
 			return m, cmd
+		}
+
+		if m.showSecretClipboardConfirm {
+			switch msg.String() {
+			case "y", "Y":
+				m.showSecretClipboardConfirm = false
+				return m, m.copySecretValueCmd()
+			default:
+				m.showSecretClipboardConfirm = false
+				return m, nil
+			}
 		}
 
 		if m.showExportModal {
@@ -1331,21 +1328,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 
 				if key.Matches(msg, keys.ProfileExport) {
-					if m.config != nil && m.config.SnapshotPath != "" {
-						m.exportPathInput.SetValue(m.config.SnapshotPath)
-					} else if m.exportPathInput.Value() == "" {
-						m.exportPathInput.SetValue(usecase.DefaultSnapshotPath())
-					}
+					m.exportPathInput.SetValue(usecase.DefaultSnapshotPath())
 					m.showExportModal = true
 					m.exportPathInput.Focus()
 					return m, nil
 				}
 				if key.Matches(msg, keys.ProfileImport) {
-					if m.config != nil && m.config.SnapshotPath != "" {
-						m.importPathInput.SetValue(m.config.SnapshotPath)
-					} else if m.importPathInput.Value() == "" {
-						m.importPathInput.SetValue(usecase.DefaultSnapshotPath())
-					}
+					m.importPathInput.SetValue(usecase.DefaultSnapshotPath())
 					m.showImportModal = true
 					m.importPathInput.Focus()
 					return m, nil
@@ -1353,7 +1342,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		if m.activeTab == panelSecrets && !m.showSecretCreateModal && !m.showSecretUpdateModal && !m.showSecretDeleteConfirm && !m.showSecretRestoreConfirm && !m.showSecretPromoteConfirm && !m.showSecretValueModal {
+		if m.activeTab == panelSecrets && !m.showSecretCreateModal && !m.showSecretUpdateModal && !m.showSecretDeleteConfirm && !m.showSecretRestoreConfirm && !m.showSecretPromoteConfirm && !m.showSecretClipboardConfirm && !m.showSecretValueModal {
 			switch msg.String() {
 			case "up", "k":
 				m.moveSelectionUp()
@@ -1675,8 +1664,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, keys.SQSPurgeAll):
 			if m.activeTab == panelSQS && len(m.queues) > 0 {
 				m.showSqsPurgeAllConfirm = true
-				m.sqsPurgeAllInput.SetValue("")
-				m.sqsPurgeAllInput.Focus()
 				return m, nil
 			}
 
@@ -1916,7 +1903,7 @@ func (m *Model) moveSelectionDown() {
 func (m *Model) triggerSubpanelLoadCmd() tea.Cmd {
 	switch m.activeTab {
 	case panelS3:
-		if m.s3Focus == focusBuckets && len(m.buckets) > 0 {
+		if m.s3Focus == focusBuckets && len(m.buckets) > 0 && m.selectedBucketIndex < len(m.buckets) {
 			bucket := m.buckets[m.selectedBucketIndex].Name
 			if m.s3ObjectsLoadedFor == bucket {
 				m.objects = m.s3ObjectsCache[bucket]
@@ -1925,12 +1912,12 @@ func (m *Model) triggerSubpanelLoadCmd() tea.Cmd {
 			return m.loadS3ObjectsCmd(bucket)
 		}
 	case panelSQS:
-		if m.sqsFocus == focusQueues && len(m.queues) > 0 {
+		if m.sqsFocus == focusQueues && len(m.queues) > 0 && m.selectedQueueIndex < len(m.queues) {
 			q := m.queues[m.selectedQueueIndex]
 			return m.loadSQSQueueSubscriptionsCmd(q.URL, q.ARN)
 		}
 	case panelSNS:
-		if m.snsSubFocus == focusTopics && len(m.topics) > 0 {
+		if m.snsSubFocus == focusTopics && len(m.topics) > 0 && m.selectedTopicIndex < len(m.topics) {
 			topicARN := m.topics[m.selectedTopicIndex].ARN
 			return tea.Batch(
 				m.loadSNSSubscriptionsCmd(topicARN),
