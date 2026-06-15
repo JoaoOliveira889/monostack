@@ -2,7 +2,7 @@
 
 Welcome to the Monostack documentation! Monostack is a powerful, terminal-based dashboard designed to manage AWS services with ease and efficiency.
 
-Current release: [0.0.5](https://github.com/JoaoOliveira889/monostack)
+Current release: [0.0.6](https://github.com/JoaoOliveira889/monostack)
 
 ## Table of Contents
 

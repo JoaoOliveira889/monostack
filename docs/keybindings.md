@@ -1,6 +1,6 @@
 # Keybindings
 
-Current release: [0.0.5](https://github.com/JoaoOliveira889/monostack)
+Current release: [0.0.6](https://github.com/JoaoOliveira889/monostack)
 
 ## Global
 
