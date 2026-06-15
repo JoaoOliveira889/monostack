@@ -832,7 +832,7 @@ func TestUpdate_SQSPurgeAllHandling(t *testing.T) {
 	m.activeTab = panelSQS
 	m.queues = []domain.SQSQueue{{Name: "q1", URL: "url-1"}, {Name: "q2", URL: "url-2"}}
 
-	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'P'}})
+	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'M'}})
 	model, ok := result.(Model)
 	if !ok {
 		t.Fatalf("expected Model, got %T", result)

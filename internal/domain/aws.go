@@ -19,6 +19,14 @@ type S3Object struct {
 	Metadata     map[string]string
 }
 
+type S3ObjectVersion struct {
+	Key          string
+	VersionID    string
+	IsLatest     bool
+	Size         int64
+	LastModified string
+}
+
 type S3Manager interface {
 	ListBuckets(ctx context.Context, cfg *AWSConfig) ([]S3Bucket, error)
 	ListObjects(ctx context.Context, cfg *AWSConfig, bucket string, prefix string) ([]S3Object, error)
@@ -27,10 +35,13 @@ type S3Manager interface {
 	CreateBucket(ctx context.Context, cfg *AWSConfig, name string) error
 	CreateFolder(ctx context.Context, cfg *AWSConfig, bucket string, key string) error
 	UploadObject(ctx context.Context, cfg *AWSConfig, bucket string, key string, filePath string) error
+	UploadObjectMultipart(ctx context.Context, cfg *AWSConfig, bucket string, key string, filePath string) error
 	UploadObjectWithMetadata(ctx context.Context, cfg *AWSConfig, bucket string, key string, filePath string, metadata map[string]string) error
 	GetPresignedURL(ctx context.Context, cfg *AWSConfig, bucket string, key string) (string, error)
 	DownloadObject(ctx context.Context, cfg *AWSConfig, bucket string, key string, destPath string) error
 	HeadObject(ctx context.Context, cfg *AWSConfig, bucket string, key string) (contentType string, metadata map[string]string, err error)
+	ListObjectVersions(ctx context.Context, cfg *AWSConfig, bucket string, key string) ([]S3ObjectVersion, error)
+	DeleteObjectVersion(ctx context.Context, cfg *AWSConfig, bucket string, key string, versionID string) error
 }
 
 type SQSQueue struct {
@@ -43,14 +54,16 @@ type SQSQueue struct {
 }
 
 type SQSMessage struct {
-	ID   string
-	Body string
+	ID            string
+	Body          string
+	ReceiptHandle string
 }
 
 type SQSManager interface {
 	ListQueues(ctx context.Context, cfg *AWSConfig) ([]SQSQueue, error)
 	SendMessage(ctx context.Context, cfg *AWSConfig, queueURL string, body string) error
 	ReceiveMessages(ctx context.Context, cfg *AWSConfig, queueURL string, maxMessages int) ([]SQSMessage, error)
+	DeleteMessage(ctx context.Context, cfg *AWSConfig, queueURL string, receiptHandle string) error
 	PurgeQueue(ctx context.Context, cfg *AWSConfig, queueURL string) error
 	DeleteQueue(ctx context.Context, cfg *AWSConfig, queueURL string) error
 	CreateQueue(ctx context.Context, cfg *AWSConfig, name string) (string, error)

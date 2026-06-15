@@ -1,6 +1,15 @@
 package tui
 
-import "monostack/internal/domain"
+import (
+	tea "github.com/charmbracelet/bubbletea"
+
+	"monostack/internal/domain"
+)
+
+type healthCheckMsg struct {
+	OK  bool
+	Err string
+}
 
 type configLoadedMsg struct {
 	Config *domain.AWSConfig
@@ -75,6 +84,11 @@ type sqsMessageSentMsg struct {
 type sqsMessagesLoadedMsg struct {
 	QueueURL string
 	Messages []domain.SQSMessage
+}
+
+type sqsMessagesDeletedMsg struct {
+	QueueURL string
+	Count    int
 }
 
 type snsTopicsLoadedMsg struct {
@@ -202,8 +216,61 @@ type clearStatusMsg struct {
 
 type splashTickMsg struct{}
 
+type autoRefreshTickMsg struct{}
+
+type progressMsg struct {
+	Operation string
+	Percent   float64
+}
+
+type progressDoneMsg struct {
+	Operation string
+	Result    tea.Msg
+}
+
+type sdkLogMsg struct {
+	Text string
+}
+
+type logTickMsg struct{}
+
+type singleResourceExportedMsg struct {
+	Path string
+}
+
+type s3VersionsLoadedMsg struct {
+	Bucket   string
+	Key      string
+	Versions []domain.S3ObjectVersion
+}
+
+type s3VersionDeletedMsg struct {
+	Bucket    string
+	Key       string
+	VersionID string
+}
+
 type inspectionLoadedMsg struct {
 	Title    string
 	Subtitle string
 	Content  string
+}
+
+type profilesLoadedMsg struct {
+	Profiles []string
+}
+
+type profileSwitchedMsg struct {
+	Name   string
+	Config *domain.AWSConfig
+}
+
+type profileSavedMsg struct {
+	Name   string
+	Config *domain.AWSConfig
+}
+
+type profileDeletedMsg struct {
+	Name   string
+	Config *domain.AWSConfig
 }

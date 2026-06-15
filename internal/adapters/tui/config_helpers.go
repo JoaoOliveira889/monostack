@@ -78,6 +78,20 @@ func (m *Model) setActivePanelRatio(ratio float64) {
 	m.config.LeftPanelRatio = ratio
 }
 
+func (m *Model) finishConfigLoad() tea.Cmd {
+	if len(m.settingsInputs) == 0 {
+		m.settingsInputs = make([]textinput.Model, 8)
+		for i := range m.settingsInputs {
+			m.settingsInputs[i] = textinput.New()
+			m.settingsInputs[i].Width = 40
+		}
+	}
+	m.syncSettingsInputsFromConfig()
+	m.settingsEditMode = false
+	m.ensureActiveTabVisible()
+	return m.reloadTabCmd()
+}
+
 func (m Model) panelEnabled(panel activePanel) bool {
 	if panel == panelConfig {
 		return true

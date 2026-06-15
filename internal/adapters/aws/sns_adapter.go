@@ -12,16 +12,17 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sns/types"
 
 	"monostack/internal/domain"
+	"monostack/internal/pkg/retry"
 )
 
-type SNSAdapter struct{}
+type SNSAdapter struct{ cache *ClientCache }
 
 var _ domain.SNSManager = (*SNSAdapter)(nil)
 
 const filterPolicyScopeAttribute = "FilterPolicyScope"
 
-func NewSNSAdapter() *SNSAdapter {
-	return &SNSAdapter{}
+func NewSNSAdapter(cache *ClientCache) *SNSAdapter {
+	return &SNSAdapter{cache: cache}
 }
 
 func parseSubscriptionAttributes(sub domain.SNSSubscription, attrs map[string]string) domain.SNSSubscription {
@@ -59,13 +60,16 @@ func (a *SNSAdapter) ListTopics(ctx context.Context, cfg *domain.AWSConfig) ([]d
 		}, nil
 	}
 
-	awsCfg, err := GetSDKConfig(ctx, cfg)
+	client, err := a.cache.SNS(ctx, cfg)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load AWS config: %w", err)
+		return nil, fmt.Errorf("failed to get SNS client: %w", err)
 	}
-
-	client := sns.NewFromConfig(awsCfg)
-	out, err := client.ListTopics(ctx, &sns.ListTopicsInput{})
+	var out *sns.ListTopicsOutput
+	err = retry.Do(ctx, retry.DefaultConfig, func() error {
+		var innerErr error
+		out, innerErr = client.ListTopics(ctx, &sns.ListTopicsInput{})
+		return innerErr
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to list SNS topics: %w", err)
 	}
@@ -87,12 +91,10 @@ func (a *SNSAdapter) PublishMessage(ctx context.Context, cfg *domain.AWSConfig, 
 		return nil
 	}
 
-	awsCfg, err := GetSDKConfig(ctx, cfg)
+	client, err := a.cache.SNS(ctx, cfg)
 	if err != nil {
-		return fmt.Errorf("failed to load AWS config: %w", err)
+		return fmt.Errorf("failed to get SNS client: %w", err)
 	}
-
-	client := sns.NewFromConfig(awsCfg)
 	input := &sns.PublishInput{
 		TopicArn: aws.String(topicARN),
 		Message:  aws.String(body),
@@ -111,7 +113,10 @@ func (a *SNSAdapter) PublishMessage(ctx context.Context, cfg *domain.AWSConfig, 
 		}
 	}
 
-	_, err = client.Publish(ctx, input)
+	err = retry.Do(ctx, retry.DefaultConfig, func() error {
+		_, innerErr := client.Publish(ctx, input)
+		return innerErr
+	})
 	if err != nil {
 		return fmt.Errorf("failed to publish to SNS topic: %w", err)
 	}
@@ -136,14 +141,17 @@ func (a *SNSAdapter) ListSubscriptions(ctx context.Context, cfg *domain.AWSConfi
 		}, nil
 	}
 
-	awsCfg, err := GetSDKConfig(ctx, cfg)
+	client, err := a.cache.SNS(ctx, cfg)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load AWS config: %w", err)
+		return nil, fmt.Errorf("failed to get SNS client: %w", err)
 	}
-
-	client := sns.NewFromConfig(awsCfg)
-	out, err := client.ListSubscriptionsByTopic(ctx, &sns.ListSubscriptionsByTopicInput{
-		TopicArn: aws.String(topicARN),
+	var out *sns.ListSubscriptionsByTopicOutput
+	err = retry.Do(ctx, retry.DefaultConfig, func() error {
+		var innerErr error
+		out, innerErr = client.ListSubscriptionsByTopic(ctx, &sns.ListSubscriptionsByTopicInput{
+			TopicArn: aws.String(topicARN),
+		})
+		return innerErr
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to list subscriptions for topic %s: %w", topicARN, err)
@@ -170,9 +178,15 @@ func (a *SNSAdapter) ListSubscriptions(ctx context.Context, cfg *domain.AWSConfi
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			if attrs, attrErr := client.GetSubscriptionAttributes(ctx, &sns.GetSubscriptionAttributesInput{
-				SubscriptionArn: aws.String(subs[idx].ARN),
-			}); attrErr == nil {
+			var attrs *sns.GetSubscriptionAttributesOutput
+			attrErr := retry.Do(ctx, retry.DefaultConfig, func() error {
+				var innerErr error
+				attrs, innerErr = client.GetSubscriptionAttributes(ctx, &sns.GetSubscriptionAttributesInput{
+					SubscriptionArn: aws.String(subs[idx].ARN),
+				})
+				return innerErr
+			})
+			if attrErr == nil {
 				subs[idx] = parseSubscriptionAttributes(subs[idx], attrs.Attributes)
 			}
 		}(i)
@@ -191,18 +205,21 @@ func (a *SNSAdapter) ListAllSubscriptions(ctx context.Context, cfg *domain.AWSCo
 		}, nil
 	}
 
-	awsCfg, err := GetSDKConfig(ctx, cfg)
+	client, err := a.cache.SNS(ctx, cfg)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load AWS config: %w", err)
+		return nil, fmt.Errorf("failed to get SNS client: %w", err)
 	}
-
-	client := sns.NewFromConfig(awsCfg)
 	var allSubs []domain.SNSSubscription
 	var nextToken *string
 
+	var out *sns.ListSubscriptionsOutput
 	for {
-		out, err := client.ListSubscriptions(ctx, &sns.ListSubscriptionsInput{
-			NextToken: nextToken,
+		err = retry.Do(ctx, retry.DefaultConfig, func() error {
+			var innerErr error
+			out, innerErr = client.ListSubscriptions(ctx, &sns.ListSubscriptionsInput{
+				NextToken: nextToken,
+			})
+			return innerErr
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to list all SNS subscriptions: %w", err)
@@ -234,9 +251,15 @@ func (a *SNSAdapter) ListAllSubscriptions(ctx context.Context, cfg *domain.AWSCo
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			if attrs, attrErr := client.GetSubscriptionAttributes(ctx, &sns.GetSubscriptionAttributesInput{
-				SubscriptionArn: aws.String(allSubs[idx].ARN),
-			}); attrErr == nil {
+			var attrs *sns.GetSubscriptionAttributesOutput
+			attrErr := retry.Do(ctx, retry.DefaultConfig, func() error {
+				var innerErr error
+				attrs, innerErr = client.GetSubscriptionAttributes(ctx, &sns.GetSubscriptionAttributesInput{
+					SubscriptionArn: aws.String(allSubs[idx].ARN),
+				})
+				return innerErr
+			})
+			if attrErr == nil {
 				allSubs[idx] = parseSubscriptionAttributes(allSubs[idx], attrs.Attributes)
 			}
 		}(i)
@@ -254,14 +277,17 @@ func (a *SNSAdapter) CreateTopic(ctx context.Context, cfg *domain.AWSConfig, nam
 		}, nil
 	}
 
-	awsCfg, err := GetSDKConfig(ctx, cfg)
+	client, err := a.cache.SNS(ctx, cfg)
 	if err != nil {
-		return domain.SNSTopic{}, fmt.Errorf("failed to load AWS config: %w", err)
+		return domain.SNSTopic{}, fmt.Errorf("failed to get SNS client: %w", err)
 	}
-
-	client := sns.NewFromConfig(awsCfg)
-	out, err := client.CreateTopic(ctx, &sns.CreateTopicInput{
-		Name: aws.String(name),
+	var out *sns.CreateTopicOutput
+	err = retry.Do(ctx, retry.DefaultConfig, func() error {
+		var innerErr error
+		out, innerErr = client.CreateTopic(ctx, &sns.CreateTopicInput{
+			Name: aws.String(name),
+		})
+		return innerErr
 	})
 	if err != nil {
 		return domain.SNSTopic{}, fmt.Errorf("failed to create SNS topic %s: %w", name, err)
@@ -278,14 +304,15 @@ func (a *SNSAdapter) DeleteTopic(ctx context.Context, cfg *domain.AWSConfig, top
 		return nil
 	}
 
-	awsCfg, err := GetSDKConfig(ctx, cfg)
+	client, err := a.cache.SNS(ctx, cfg)
 	if err != nil {
-		return fmt.Errorf("failed to load AWS config: %w", err)
+		return fmt.Errorf("failed to get SNS client: %w", err)
 	}
-
-	client := sns.NewFromConfig(awsCfg)
-	_, err = client.DeleteTopic(ctx, &sns.DeleteTopicInput{
-		TopicArn: aws.String(topicARN),
+	err = retry.Do(ctx, retry.DefaultConfig, func() error {
+		_, innerErr := client.DeleteTopic(ctx, &sns.DeleteTopicInput{
+			TopicArn: aws.String(topicARN),
+		})
+		return innerErr
 	})
 	if err != nil {
 		return fmt.Errorf("failed to delete SNS topic %s: %w", topicARN, err)
@@ -309,12 +336,10 @@ func (a *SNSAdapter) CreateSubscription(ctx context.Context, cfg *domain.AWSConf
 		}, nil
 	}
 
-	awsCfg, err := GetSDKConfig(ctx, cfg)
+	client, err := a.cache.SNS(ctx, cfg)
 	if err != nil {
-		return domain.SNSSubscription{}, fmt.Errorf("failed to load AWS config: %w", err)
+		return domain.SNSSubscription{}, fmt.Errorf("failed to get SNS client: %w", err)
 	}
-
-	client := sns.NewFromConfig(awsCfg)
 	normalizedScope, err := domain.NormalizeFilterScopeStrict(filterScope)
 	if err != nil {
 		return domain.SNSSubscription{}, err
@@ -340,12 +365,17 @@ func (a *SNSAdapter) CreateSubscription(ctx context.Context, cfg *domain.AWSConf
 		}
 	}
 
-	out, err := client.Subscribe(ctx, &sns.SubscribeInput{
-		TopicArn:              aws.String(topicARN),
-		Protocol:              aws.String(protocol),
-		Endpoint:              aws.String(endpoint),
-		ReturnSubscriptionArn: true,
-		Attributes:            attributes,
+	var out *sns.SubscribeOutput
+	err = retry.Do(ctx, retry.DefaultConfig, func() error {
+		var innerErr error
+		out, innerErr = client.Subscribe(ctx, &sns.SubscribeInput{
+			TopicArn:              aws.String(topicARN),
+			Protocol:              aws.String(protocol),
+			Endpoint:              aws.String(endpoint),
+			ReturnSubscriptionArn: true,
+			Attributes:            attributes,
+		})
+		return innerErr
 	})
 	if err != nil {
 		return domain.SNSSubscription{}, fmt.Errorf("failed to subscribe to SNS topic %s: %w", topicARN, err)
@@ -365,14 +395,15 @@ func (a *SNSAdapter) DeleteSubscription(ctx context.Context, cfg *domain.AWSConf
 		return nil
 	}
 
-	awsCfg, err := GetSDKConfig(ctx, cfg)
+	client, err := a.cache.SNS(ctx, cfg)
 	if err != nil {
-		return fmt.Errorf("failed to load AWS config: %w", err)
+		return fmt.Errorf("failed to get SNS client: %w", err)
 	}
-
-	client := sns.NewFromConfig(awsCfg)
-	_, err = client.Unsubscribe(ctx, &sns.UnsubscribeInput{
-		SubscriptionArn: aws.String(subscriptionARN),
+	err = retry.Do(ctx, retry.DefaultConfig, func() error {
+		_, innerErr := client.Unsubscribe(ctx, &sns.UnsubscribeInput{
+			SubscriptionArn: aws.String(subscriptionARN),
+		})
+		return innerErr
 	})
 	if err != nil {
 		return fmt.Errorf("failed to delete SNS subscription %s: %w", subscriptionARN, err)
@@ -388,14 +419,17 @@ func (a *SNSAdapter) GetSubscriptionAttributes(ctx context.Context, cfg *domain.
 		}, nil
 	}
 
-	awsCfg, err := GetSDKConfig(ctx, cfg)
+	client, err := a.cache.SNS(ctx, cfg)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load AWS config: %w", err)
+		return nil, fmt.Errorf("failed to get SNS client: %w", err)
 	}
-
-	client := sns.NewFromConfig(awsCfg)
-	out, err := client.GetSubscriptionAttributes(ctx, &sns.GetSubscriptionAttributesInput{
-		SubscriptionArn: aws.String(subscriptionARN),
+	var out *sns.GetSubscriptionAttributesOutput
+	err = retry.Do(ctx, retry.DefaultConfig, func() error {
+		var innerErr error
+		out, innerErr = client.GetSubscriptionAttributes(ctx, &sns.GetSubscriptionAttributesInput{
+			SubscriptionArn: aws.String(subscriptionARN),
+		})
+		return innerErr
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get subscription attributes for %s: %w", subscriptionARN, err)
@@ -409,16 +443,17 @@ func (a *SNSAdapter) SetSubscriptionAttributes(ctx context.Context, cfg *domain.
 		return nil
 	}
 
-	awsCfg, err := GetSDKConfig(ctx, cfg)
+	client, err := a.cache.SNS(ctx, cfg)
 	if err != nil {
-		return fmt.Errorf("failed to load AWS config: %w", err)
+		return fmt.Errorf("failed to get SNS client: %w", err)
 	}
-
-	client := sns.NewFromConfig(awsCfg)
-	_, err = client.SetSubscriptionAttributes(ctx, &sns.SetSubscriptionAttributesInput{
-		SubscriptionArn: aws.String(subscriptionARN),
-		AttributeName:   aws.String(attributeName),
-		AttributeValue:  aws.String(attributeValue),
+	err = retry.Do(ctx, retry.DefaultConfig, func() error {
+		_, innerErr := client.SetSubscriptionAttributes(ctx, &sns.SetSubscriptionAttributesInput{
+			SubscriptionArn: aws.String(subscriptionARN),
+			AttributeName:   aws.String(attributeName),
+			AttributeValue:  aws.String(attributeValue),
+		})
+		return innerErr
 	})
 	if err != nil {
 		return fmt.Errorf("failed to set subscription attribute %s for %s: %w", attributeName, subscriptionARN, err)

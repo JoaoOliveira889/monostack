@@ -60,6 +60,162 @@ func (uc *SnapshotUseCase) Export(ctx context.Context, rawPath string) (string, 
 		return "", err
 	}
 
+	return uc.writeSnapshot(ctx, rawPath, cfg, snapshot)
+}
+
+func (uc *SnapshotUseCase) ExportS3Bucket(ctx context.Context, cfg *domain.AWSConfig, bucketName string) (*domain.AppProfile, error) {
+	snapshot := &domain.AppProfile{
+		Version: 2,
+		Config:  redactedConfig(cfg),
+	}
+
+	subs, _ := uc.config.LoadSubscriptions()
+	snapshot.Subscriptions = subs
+
+	objects, err := uc.aws.ListS3Objects(ctx, cfg, bucketName, "")
+	if err != nil {
+		return nil, err
+	}
+
+	bucketSnapshot := domain.S3BucketSnapshot{Name: bucketName}
+	for _, object := range objects {
+		content, err := uc.downloadS3ObjectBytes(ctx, cfg, bucketName, object.Key)
+		if err != nil {
+			return nil, fmt.Errorf("bucket %s object %s: %w", bucketName, object.Key, err)
+		}
+		contentType, metadata, _ := uc.aws.HeadS3Object(ctx, cfg, bucketName, object.Key)
+		bucketSnapshot.Objects = append(bucketSnapshot.Objects, domain.S3ObjectSnapshot{
+			Key:           object.Key,
+			Size:          object.Size,
+			LastModified:  object.LastModified,
+			ContentBase64: base64.StdEncoding.EncodeToString(content),
+			ContentType:   contentType,
+			Metadata:      metadata,
+		})
+	}
+	snapshot.S3 = append(snapshot.S3, bucketSnapshot)
+	return snapshot, nil
+}
+
+func (uc *SnapshotUseCase) ExportSQSQueue(ctx context.Context, cfg *domain.AWSConfig, queueName string) (*domain.AppProfile, error) {
+	snapshot := &domain.AppProfile{
+		Version: 2,
+		Config:  redactedConfig(cfg),
+	}
+
+	subs, _ := uc.config.LoadSubscriptions()
+	snapshot.Subscriptions = subs
+
+	queues, err := uc.aws.ListSQSQueues(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, queue := range queues {
+		if queue.Name != queueName {
+			continue
+		}
+		attrs, err := uc.aws.GetSQSQueueAttributes(ctx, cfg, queue.URL, []string{"All"})
+		if err != nil {
+			attrs = map[string]string{}
+		}
+		snapshot.SQS = append(snapshot.SQS, domain.SQSQueueSnapshot{
+			Name:       queue.Name,
+			URL:        queue.URL,
+			ARN:        queue.ARN,
+			Attributes: attrs,
+		})
+		break
+	}
+
+	if len(snapshot.SQS) == 0 {
+		return nil, fmt.Errorf("queue %q not found", queueName)
+	}
+
+	return snapshot, nil
+}
+
+func (uc *SnapshotUseCase) ExportSNSTopic(ctx context.Context, cfg *domain.AWSConfig, topicARN string) (*domain.AppProfile, error) {
+	snapshot := &domain.AppProfile{
+		Version: 2,
+		Config:  redactedConfig(cfg),
+	}
+
+	subs, _ := uc.config.LoadSubscriptions()
+	snapshot.Subscriptions = subs
+
+	topics, err := uc.aws.ListSNSTopics(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, topic := range topics {
+		if topic.ARN != topicARN {
+			continue
+		}
+		topicSubs, err := uc.aws.ListSNSSubscriptions(ctx, cfg, topic.ARN)
+		if err != nil {
+			topicSubs = nil
+		}
+		snapshot.SNS = append(snapshot.SNS, domain.SNSTopicSnapshot{
+			Name:          topic.Name,
+			ARN:           topic.ARN,
+			Subscriptions: topicSubs,
+		})
+		break
+	}
+
+	if len(snapshot.SNS) == 0 {
+		return nil, fmt.Errorf("topic %q not found", topicARN)
+	}
+
+	return snapshot, nil
+}
+
+func (uc *SnapshotUseCase) ExportSecret(ctx context.Context, cfg *domain.AWSConfig, secretID string) (*domain.AppProfile, error) {
+	snapshot := &domain.AppProfile{
+		Version: 2,
+		Config:  redactedConfig(cfg),
+	}
+
+	subs, _ := uc.config.LoadSubscriptions()
+	snapshot.Subscriptions = subs
+
+	secrets, err := uc.aws.ListSecrets(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, secret := range secrets {
+		if secret.ARN != secretID {
+			continue
+		}
+		secretSnapshot := domain.SecretSnapshot{
+			Name:        secret.Name,
+			Description: secret.Description,
+			KMSKeyID:    secret.KMSKeyID,
+		}
+		val, valErr := uc.aws.GetSecretValue(ctx, cfg, secret.ARN, "", "")
+		if valErr == nil {
+			secretSnapshot.SecretString = val.SecretString
+			secretSnapshot.SecretBinaryB64 = val.SecretBinaryBase64
+		}
+		snapshot.Secrets = append(snapshot.Secrets, secretSnapshot)
+		break
+	}
+
+	if len(snapshot.Secrets) == 0 {
+		return nil, fmt.Errorf("secret %q not found", secretID)
+	}
+
+	return snapshot, nil
+}
+
+func (uc *SnapshotUseCase) ExportSingleResourceToPath(ctx context.Context, rawPath string, cfg *domain.AWSConfig, snapshot *domain.AppProfile) (string, error) {
+	return uc.writeSnapshot(ctx, rawPath, cfg, snapshot)
+}
+
+func (uc *SnapshotUseCase) writeSnapshot(ctx context.Context, rawPath string, cfg *domain.AWSConfig, snapshot *domain.AppProfile) (string, error) {
 	targetPath, err := resolveSnapshotTarget(rawPath, cfg)
 	if err != nil {
 		return "", err

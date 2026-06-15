@@ -120,3 +120,19 @@ func (m *mockConfigStore) Save(cfg *AWSConfig) error {
 	}
 	return nil
 }
+
+func (m *mockConfigStore) ListProfiles() ([]string, error) {
+	return nil, nil
+}
+
+func (m *mockConfigStore) SwitchProfile(name string) error {
+	return nil
+}
+
+func (m *mockConfigStore) SaveProfile(name string, cfg *AWSConfig) error {
+	return nil
+}
+
+func (m *mockConfigStore) DeleteProfile(name string) error {
+	return nil
+}

@@ -30,6 +30,14 @@ func (m Model) View() string {
 		footer,
 	)
 
+	if m.showProgress && m.width > 0 {
+		progressView := m.progress.view()
+		view += "\n" + lipgloss.NewStyle().
+			Width(m.width).
+			Padding(0, 1).
+			Render(progressView)
+	}
+
 	if m.showS3ConfirmDelete {
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
 			m.styles.Modal.Render(m.renderS3ConfirmDeleteModal()),
@@ -81,6 +89,12 @@ func (m Model) View() string {
 	if m.showS3PreviewModal {
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
 			m.styles.Modal.Render(m.renderS3PreviewModal()),
+		)
+	}
+
+	if m.showVersionsModal {
+		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
+			m.styles.Modal.Render(m.renderS3VersionsModal()),
 		)
 	}
 
@@ -192,6 +206,12 @@ func (m Model) View() string {
 		)
 	}
 
+	if m.showSingleExportModal {
+		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
+			m.styles.Modal.Render(m.renderSingleExportModal()),
+		)
+	}
+
 	if m.showPeekModal {
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
 			m.styles.Modal.Render(m.renderPeekModal()),
@@ -211,6 +231,18 @@ func (m Model) View() string {
 	if m.showInspectionModal {
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
 			m.styles.Modal.Render(m.renderInspectionModal()),
+		)
+	}
+
+	if m.showProfileModal {
+		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
+			m.styles.Modal.Render(m.renderProfileModal()),
+		)
+	}
+
+	if m.showProfileDeleteConfirm {
+		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
+			m.styles.Modal.Render(m.renderProfileDeleteConfirmModal()),
 		)
 	}
 
@@ -249,7 +281,6 @@ func (m Model) renderBody() string {
 
 func (m Model) renderHeader() string {
 	header := m.renderHeaderBrand()
-
 	profileInfo := "Offline"
 	if m.config != nil {
 		mockTag := ""
@@ -264,7 +295,12 @@ func (m Model) renderHeader() string {
 			endpoint = strings.TrimPrefix(endpoint, "http://")
 			endpoint = strings.TrimPrefix(endpoint, "https://")
 		}
-		profileInfo = fmt.Sprintf("[%s] %s%s ", m.config.ServiceName, endpoint, mockTag)
+
+		prefix := ""
+		if m.config.ActiveProfile != "" {
+			prefix = "[" + m.config.ActiveProfile + "] "
+		}
+		profileInfo = fmt.Sprintf("%s%s %s%s ", prefix, m.config.ServiceName, m.config.Region, mockTag)
 	}
 
 	statsStr := m.styles.InfoText.Render(profileInfo)
@@ -338,6 +374,7 @@ func (m Model) renderFooter() string {
 				m.footerItem("esc", "back"),
 				m.footerItem("f", "folder"),
 				m.footerItem("v", "preview"),
+				m.footerItem("V", "versions"),
 				m.footerItem("w", "download"),
 				m.footerItem("d", "delete"),
 			}
@@ -350,8 +387,8 @@ func (m Model) renderFooter() string {
 				m.footerItem("l", "routes"),
 				m.footerItem("c", "create"),
 				m.footerItem("s", "send"),
-				m.footerItem("p", "purge"),
-				m.footerItem("P", "purge all"),
+				m.footerItem("m", "purge"),
+				m.footerItem("M", "purge all"),
 			}
 		} else {
 			primary = []string{

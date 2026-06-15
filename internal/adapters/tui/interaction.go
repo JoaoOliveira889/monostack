@@ -419,6 +419,53 @@ func (m Model) secretVersionSelectionText(start, end int) string {
 	return strings.Join(lines, "\n")
 }
 
+func (m Model) currentResourceARN() string {
+	switch m.activeTab {
+	case panelS3:
+		if m.s3Focus == focusObjects && len(m.objects) > 0 && m.selectedObjectIndex < len(m.objects) {
+			return m.objects[m.selectedObjectIndex].Key
+		}
+		if m.s3Focus == focusBuckets && len(m.buckets) > 0 && m.selectedBucketIndex < len(m.buckets) {
+			return m.buckets[m.selectedBucketIndex].Name
+		}
+	case panelSQS:
+		if m.sqsFocus == focusQueueSubs && len(m.queueSubscriptions) > 0 && m.selectedQueueSubIndex < len(m.queueSubscriptions) {
+			return m.queueSubscriptions[m.selectedQueueSubIndex].ARN
+		}
+		if len(m.queues) > 0 && m.selectedQueueIndex < len(m.queues) {
+			return m.queues[m.selectedQueueIndex].ARN
+		}
+	case panelSNS:
+		if m.snsSubFocus == focusSubs && len(m.subscriptions) > 0 && m.selectedSubIndex < len(m.subscriptions) {
+			return m.subscriptions[m.selectedSubIndex].ARN
+		}
+		if len(m.topics) > 0 && m.selectedTopicIndex < len(m.topics) {
+			return m.topics[m.selectedTopicIndex].ARN
+		}
+	case panelSecrets:
+		if m.secretsFocus == focusSecretVersions && len(m.secretVersions) > 0 && m.selectedSecretVersionIndex < len(m.secretVersions) {
+			return m.secretVersions[m.selectedSecretVersionIndex].VersionID
+		}
+		if len(m.secrets) > 0 && m.selectedSecretIndex < len(m.secrets) {
+			return m.secrets[m.selectedSecretIndex].ARN
+		}
+	}
+	return ""
+}
+
+func (m *Model) copyResourceARNCmd() tea.Cmd {
+	arn := strings.TrimSpace(m.currentResourceARN())
+	if arn == "" {
+		return m.setStatusMessage("Nothing to copy")
+	}
+	return func() tea.Msg {
+		if err := clipboard.WriteAll(arn); err != nil {
+			return errMsg{Error: fmt.Errorf("clipboard unavailable: %w", err)}
+		}
+		return statusMsg{Message: "ARN copied to clipboard"}
+	}
+}
+
 func (m Model) commandLogSelectionText(start, end int) string {
 	if len(m.commandLogs) == 0 {
 		return ""

@@ -12,6 +12,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sqs/types"
 
 	"monostack/internal/domain"
+	"monostack/internal/pkg/retry"
 )
 
 func clamp(n, min, max int) int {
@@ -24,12 +25,12 @@ func clamp(n, min, max int) int {
 	return n
 }
 
-type SQSAdapter struct{}
+type SQSAdapter struct{ cache *ClientCache }
 
 var _ domain.SQSManager = (*SQSAdapter)(nil)
 
-func NewSQSAdapter() *SQSAdapter {
-	return &SQSAdapter{}
+func NewSQSAdapter(cache *ClientCache) *SQSAdapter {
+	return &SQSAdapter{cache: cache}
 }
 
 func queueNameFromRef(queueRef string) string {
@@ -76,18 +77,21 @@ func (a *SQSAdapter) ListQueues(ctx context.Context, cfg *domain.AWSConfig) ([]d
 		}, nil
 	}
 
-	awsCfg, err := GetSDKConfig(ctx, cfg)
+	client, err := a.cache.SQS(ctx, cfg)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load AWS config: %w", err)
+		return nil, fmt.Errorf("failed to get SQS client: %w", err)
 	}
-
-	client := sqs.NewFromConfig(awsCfg)
 	var queues []domain.SQSQueue
 	var nextToken *string
 
+	var out *sqs.ListQueuesOutput
 	for {
-		out, err := client.ListQueues(ctx, &sqs.ListQueuesInput{
-			NextToken: nextToken,
+		err = retry.Do(ctx, retry.DefaultConfig, func() error {
+			var innerErr error
+			out, innerErr = client.ListQueues(ctx, &sqs.ListQueuesInput{
+				NextToken: nextToken,
+			})
+			return innerErr
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to list queues: %w", err)
@@ -96,13 +100,18 @@ func (a *SQSAdapter) ListQueues(ctx context.Context, cfg *domain.AWSConfig) ([]d
 		for _, qURL := range out.QueueUrls {
 			name := qURL[strings.LastIndex(qURL, "/")+1:]
 
-			attrOut, attrErr := client.GetQueueAttributes(ctx, &sqs.GetQueueAttributesInput{
-				QueueUrl: aws.String(qURL),
-				AttributeNames: []types.QueueAttributeName{
-					types.QueueAttributeNameApproximateNumberOfMessages,
-					types.QueueAttributeNameApproximateNumberOfMessagesDelayed,
-					types.QueueAttributeNameApproximateNumberOfMessagesNotVisible,
-				},
+			var attrOut *sqs.GetQueueAttributesOutput
+			attrErr := retry.Do(ctx, retry.DefaultConfig, func() error {
+				var innerErr error
+				attrOut, innerErr = client.GetQueueAttributes(ctx, &sqs.GetQueueAttributesInput{
+					QueueUrl: aws.String(qURL),
+					AttributeNames: []types.QueueAttributeName{
+						types.QueueAttributeNameApproximateNumberOfMessages,
+						types.QueueAttributeNameApproximateNumberOfMessagesDelayed,
+						types.QueueAttributeNameApproximateNumberOfMessagesNotVisible,
+					},
+				})
+				return innerErr
 			})
 
 			var avail, delayed, notVis int
@@ -136,15 +145,16 @@ func (a *SQSAdapter) SendMessage(ctx context.Context, cfg *domain.AWSConfig, que
 		return nil
 	}
 
-	awsCfg, err := GetSDKConfig(ctx, cfg)
+	client, err := a.cache.SQS(ctx, cfg)
 	if err != nil {
-		return fmt.Errorf("failed to load AWS config: %w", err)
+		return fmt.Errorf("failed to get SQS client: %w", err)
 	}
-
-	client := sqs.NewFromConfig(awsCfg)
-	_, err = client.SendMessage(ctx, &sqs.SendMessageInput{
-		QueueUrl:    aws.String(queueURL),
-		MessageBody: aws.String(body),
+	err = retry.Do(ctx, retry.DefaultConfig, func() error {
+		_, innerErr := client.SendMessage(ctx, &sqs.SendMessageInput{
+			QueueUrl:    aws.String(queueURL),
+			MessageBody: aws.String(body),
+		})
+		return innerErr
 	})
 	if err != nil {
 		return fmt.Errorf("failed to send SQS message: %w", err)
@@ -160,17 +170,20 @@ func (a *SQSAdapter) ReceiveMessages(ctx context.Context, cfg *domain.AWSConfig,
 		}, nil
 	}
 
-	awsCfg, err := GetSDKConfig(ctx, cfg)
+	client, err := a.cache.SQS(ctx, cfg)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load AWS config: %w", err)
+		return nil, fmt.Errorf("failed to get SQS client: %w", err)
 	}
-
-	client := sqs.NewFromConfig(awsCfg)
-	out, err := client.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
-		QueueUrl:            aws.String(queueURL),
-		MaxNumberOfMessages: int32(clamp(maxMessages, 1, 10)),
-		VisibilityTimeout:   5,
-		WaitTimeSeconds:     1,
+	var out *sqs.ReceiveMessageOutput
+	err = retry.Do(ctx, retry.DefaultConfig, func() error {
+		var innerErr error
+		out, innerErr = client.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
+			QueueUrl:            aws.String(queueURL),
+			MaxNumberOfMessages: int32(clamp(maxMessages, 1, 10)),
+			VisibilityTimeout:   5,
+			WaitTimeSeconds:     1,
+		})
+		return innerErr
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to receive messages: %w", err)
@@ -179,11 +192,35 @@ func (a *SQSAdapter) ReceiveMessages(ctx context.Context, cfg *domain.AWSConfig,
 	var messages []domain.SQSMessage
 	for _, m := range out.Messages {
 		messages = append(messages, domain.SQSMessage{
-			ID:   aws.ToString(m.MessageId),
-			Body: aws.ToString(m.Body),
+			ID:            aws.ToString(m.MessageId),
+			Body:          aws.ToString(m.Body),
+			ReceiptHandle: aws.ToString(m.ReceiptHandle),
 		})
 	}
 	return messages, nil
+}
+
+func (a *SQSAdapter) DeleteMessage(ctx context.Context, cfg *domain.AWSConfig, queueURL, receiptHandle string) error {
+	if cfg.UseMock {
+		return nil
+	}
+
+	client, err := a.cache.SQS(ctx, cfg)
+	if err != nil {
+		return fmt.Errorf("failed to get SQS client: %w", err)
+	}
+
+	err = retry.Do(ctx, retry.DefaultConfig, func() error {
+		_, innerErr := client.DeleteMessage(ctx, &sqs.DeleteMessageInput{
+			QueueUrl:      aws.String(queueURL),
+			ReceiptHandle: aws.String(receiptHandle),
+		})
+		return innerErr
+	})
+	if err != nil {
+		return fmt.Errorf("failed to delete SQS message: %w", err)
+	}
+	return nil
 }
 
 func (a *SQSAdapter) PurgeQueue(ctx context.Context, cfg *domain.AWSConfig, queueURL string) error {
@@ -191,14 +228,15 @@ func (a *SQSAdapter) PurgeQueue(ctx context.Context, cfg *domain.AWSConfig, queu
 		return nil
 	}
 
-	awsCfg, err := GetSDKConfig(ctx, cfg)
+	client, err := a.cache.SQS(ctx, cfg)
 	if err != nil {
-		return fmt.Errorf("failed to load AWS config: %w", err)
+		return fmt.Errorf("failed to get SQS client: %w", err)
 	}
-
-	client := sqs.NewFromConfig(awsCfg)
-	_, err = client.PurgeQueue(ctx, &sqs.PurgeQueueInput{
-		QueueUrl: aws.String(queueURL),
+	err = retry.Do(ctx, retry.DefaultConfig, func() error {
+		_, innerErr := client.PurgeQueue(ctx, &sqs.PurgeQueueInput{
+			QueueUrl: aws.String(queueURL),
+		})
+		return innerErr
 	})
 	if err != nil {
 		return fmt.Errorf("failed to purge SQS queue: %w", err)
@@ -211,14 +249,15 @@ func (a *SQSAdapter) DeleteQueue(ctx context.Context, cfg *domain.AWSConfig, que
 		return nil
 	}
 
-	awsCfg, err := GetSDKConfig(ctx, cfg)
+	client, err := a.cache.SQS(ctx, cfg)
 	if err != nil {
-		return fmt.Errorf("failed to load AWS config: %w", err)
+		return fmt.Errorf("failed to get SQS client: %w", err)
 	}
-
-	client := sqs.NewFromConfig(awsCfg)
-	_, err = client.DeleteQueue(ctx, &sqs.DeleteQueueInput{
-		QueueUrl: aws.String(queueURL),
+	err = retry.Do(ctx, retry.DefaultConfig, func() error {
+		_, innerErr := client.DeleteQueue(ctx, &sqs.DeleteQueueInput{
+			QueueUrl: aws.String(queueURL),
+		})
+		return innerErr
 	})
 	if err != nil {
 		return fmt.Errorf("failed to delete SQS queue: %w", err)
@@ -231,14 +270,17 @@ func (a *SQSAdapter) CreateQueue(ctx context.Context, cfg *domain.AWSConfig, nam
 		return "https://sqs.us-east-1.amazonaws.com/123456789012/" + name, nil
 	}
 
-	awsCfg, err := GetSDKConfig(ctx, cfg)
+	client, err := a.cache.SQS(ctx, cfg)
 	if err != nil {
-		return "", fmt.Errorf("failed to load AWS config: %w", err)
+		return "", fmt.Errorf("failed to get SQS client: %w", err)
 	}
-
-	client := sqs.NewFromConfig(awsCfg)
-	out, err := client.CreateQueue(ctx, &sqs.CreateQueueInput{
-		QueueName: aws.String(name),
+	var out *sqs.CreateQueueOutput
+	err = retry.Do(ctx, retry.DefaultConfig, func() error {
+		var innerErr error
+		out, innerErr = client.CreateQueue(ctx, &sqs.CreateQueueInput{
+			QueueName: aws.String(name),
+		})
+		return innerErr
 	})
 	if err != nil {
 		return "", fmt.Errorf("failed to create SQS queue: %w", err)
@@ -253,12 +295,10 @@ func (a *SQSAdapter) GetQueueAttributes(ctx context.Context, cfg *domain.AWSConf
 		}, nil
 	}
 
-	awsCfg, err := GetSDKConfig(ctx, cfg)
+	client, err := a.cache.SQS(ctx, cfg)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load AWS config: %w", err)
+		return nil, fmt.Errorf("failed to get SQS client: %w", err)
 	}
-
-	client := sqs.NewFromConfig(awsCfg)
 	names := make([]types.QueueAttributeName, 0, len(attributeNames))
 	for _, name := range attributeNames {
 		if strings.TrimSpace(name) == "" {
@@ -270,9 +310,14 @@ func (a *SQSAdapter) GetQueueAttributes(ctx context.Context, cfg *domain.AWSConf
 		names = []types.QueueAttributeName{types.QueueAttributeName("All")}
 	}
 
-	out, err := client.GetQueueAttributes(ctx, &sqs.GetQueueAttributesInput{
-		QueueUrl:       aws.String(queueURL),
-		AttributeNames: names,
+	var out *sqs.GetQueueAttributesOutput
+	err = retry.Do(ctx, retry.DefaultConfig, func() error {
+		var innerErr error
+		out, innerErr = client.GetQueueAttributes(ctx, &sqs.GetQueueAttributesInput{
+			QueueUrl:       aws.String(queueURL),
+			AttributeNames: names,
+		})
+		return innerErr
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get queue attributes: %w", err)
@@ -286,15 +331,16 @@ func (a *SQSAdapter) SetQueueAttributes(ctx context.Context, cfg *domain.AWSConf
 		return nil
 	}
 
-	awsCfg, err := GetSDKConfig(ctx, cfg)
+	client, err := a.cache.SQS(ctx, cfg)
 	if err != nil {
-		return fmt.Errorf("failed to load AWS config: %w", err)
+		return fmt.Errorf("failed to get SQS client: %w", err)
 	}
-
-	client := sqs.NewFromConfig(awsCfg)
-	_, err = client.SetQueueAttributes(ctx, &sqs.SetQueueAttributesInput{
-		QueueUrl:   aws.String(queueURL),
-		Attributes: attributes,
+	err = retry.Do(ctx, retry.DefaultConfig, func() error {
+		_, innerErr := client.SetQueueAttributes(ctx, &sqs.SetQueueAttributesInput{
+			QueueUrl:   aws.String(queueURL),
+			Attributes: attributes,
+		})
+		return innerErr
 	})
 	if err != nil {
 		return fmt.Errorf("failed to set queue attributes: %w", err)
@@ -319,14 +365,17 @@ func (a *SQSAdapter) ResolveQueueURL(ctx context.Context, cfg *domain.AWSConfig,
 		return "https://sqs.us-east-1.amazonaws.com/123456789012/" + queueName, nil
 	}
 
-	awsCfg, err := GetSDKConfig(ctx, cfg)
+	client, err := a.cache.SQS(ctx, cfg)
 	if err != nil {
-		return "", fmt.Errorf("failed to load AWS config: %w", err)
+		return "", fmt.Errorf("failed to get SQS client: %w", err)
 	}
-
-	client := sqs.NewFromConfig(awsCfg)
-	out, err := client.GetQueueUrl(ctx, &sqs.GetQueueUrlInput{
-		QueueName: aws.String(queueName),
+	var out *sqs.GetQueueUrlOutput
+	err = retry.Do(ctx, retry.DefaultConfig, func() error {
+		var innerErr error
+		out, innerErr = client.GetQueueUrl(ctx, &sqs.GetQueueUrlInput{
+			QueueName: aws.String(queueName),
+		})
+		return innerErr
 	})
 	if err != nil {
 		return "", fmt.Errorf("failed to resolve queue url for %q: %w", queueRef, err)

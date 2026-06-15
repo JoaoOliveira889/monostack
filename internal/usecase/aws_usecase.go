@@ -53,12 +53,24 @@ func (uc *AWSUseCase) UploadS3Object(ctx context.Context, cfg *domain.AWSConfig,
 	return uc.s3.UploadObject(ctx, cfg, bucket, key, filePath)
 }
 
+func (uc *AWSUseCase) UploadS3ObjectMultipart(ctx context.Context, cfg *domain.AWSConfig, bucket string, key string, filePath string) error {
+	return uc.s3.UploadObjectMultipart(ctx, cfg, bucket, key, filePath)
+}
+
 func (uc *AWSUseCase) UploadS3ObjectWithMetadata(ctx context.Context, cfg *domain.AWSConfig, bucket string, key string, filePath string, metadata map[string]string) error {
 	return uc.s3.UploadObjectWithMetadata(ctx, cfg, bucket, key, filePath, metadata)
 }
 
 func (uc *AWSUseCase) HeadS3Object(ctx context.Context, cfg *domain.AWSConfig, bucket string, key string) (string, map[string]string, error) {
 	return uc.s3.HeadObject(ctx, cfg, bucket, key)
+}
+
+func (uc *AWSUseCase) ListS3ObjectVersions(ctx context.Context, cfg *domain.AWSConfig, bucket string, key string) ([]domain.S3ObjectVersion, error) {
+	return uc.s3.ListObjectVersions(ctx, cfg, bucket, key)
+}
+
+func (uc *AWSUseCase) DeleteS3ObjectVersion(ctx context.Context, cfg *domain.AWSConfig, bucket string, key string, versionID string) error {
+	return uc.s3.DeleteObjectVersion(ctx, cfg, bucket, key, versionID)
 }
 
 func (uc *AWSUseCase) GetS3PresignedURL(ctx context.Context, cfg *domain.AWSConfig, bucket string, key string) (string, error) {
@@ -92,6 +104,23 @@ func (uc *AWSUseCase) PurgeSQSQueues(ctx context.Context, cfg *domain.AWSConfig,
 		}
 	}
 	return nil
+}
+
+func (uc *AWSUseCase) DeleteSQSMessages(ctx context.Context, cfg *domain.AWSConfig, queueURL string, receiptHandles []string) error {
+	for _, handle := range receiptHandles {
+		if err := uc.sqs.DeleteMessage(ctx, cfg, queueURL, handle); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (uc *AWSUseCase) HealthCheck(ctx context.Context, cfg *domain.AWSConfig) error {
+	if cfg.UseMock {
+		return nil
+	}
+	_, err := uc.sqs.ListQueues(ctx, cfg)
+	return err
 }
 
 func (uc *AWSUseCase) DeleteSQSQueue(ctx context.Context, cfg *domain.AWSConfig, queueURL string) error {

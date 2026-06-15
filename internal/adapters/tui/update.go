@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"monostack/internal/domain"
 	"monostack/internal/usecase"
@@ -39,22 +39,40 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case autoRefreshTickMsg:
+		if m.showSplash || m.loading || m.config == nil || m.anyModalOpen() {
+			return m, m.autoRefreshTickCmd()
+		}
+		var refreshCmd tea.Cmd
+		switch m.activeTab {
+		case panelS3:
+			refreshCmd = m.loadS3BucketsCmd()
+		case panelSQS:
+			refreshCmd = m.loadSQSQueuesCmd()
+		case panelSNS:
+			refreshCmd = m.loadSNSTopicsCmd()
+		}
+		return m, tea.Batch(refreshCmd, m.autoRefreshTickCmd())
+
 	case configLoadedMsg:
 		m.config = msg.Config
 		m.loading = false
 		m.leftPanelRatio = msg.Config.LeftPanelRatio
 		m.appendCommandLog("config", msg.Config.ServiceName, "configuration loaded", nil)
-		if len(m.settingsInputs) == 0 {
-			m.settingsInputs = make([]textinput.Model, 8)
-			for i := range m.settingsInputs {
-				m.settingsInputs[i] = textinput.New()
-				m.settingsInputs[i].Width = 40
-			}
+		if !msg.Config.UseMock {
+			return m, m.healthCheckCmd()
 		}
-		m.syncSettingsInputsFromConfig()
-		m.settingsEditMode = false
-		m.ensureActiveTabVisible()
-		return m, m.reloadTabCmd()
+		return m, m.finishConfigLoad()
+
+	case healthCheckMsg:
+		if !msg.OK {
+			m.statusMsg = ""
+			m.errorMsg = fmt.Sprintf("Cannot reach %s. Press [s] for Settings or [m] for Mock Mode.", m.config.EndpointURL)
+			m.showSplash = false
+			m.loading = false
+			return m, nil
+		}
+		return m, m.finishConfigLoad()
 
 	case configSavedMsg:
 		m.config = msg.Config
@@ -73,6 +91,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.buckets = msg.Buckets
 		m.loading = false
 		m.errorMsg = ""
+		m.appendCommandLog("list", "buckets", fmt.Sprintf("%d buckets loaded", len(msg.Buckets)), nil)
 		if len(m.buckets) > 0 && m.selectedBucketIndex < len(m.buckets) {
 			bucket := m.buckets[m.selectedBucketIndex].Name
 			return m, m.loadS3ObjectsCmd(bucket)
@@ -80,17 +99,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case s3ObjectsLoadedMsg:
-		m.s3ObjectsCache[msg.Bucket] = msg.Objects
+		cacheKey := s3CacheKey(msg.Bucket, m.currentPrefix)
+		m.s3ObjectsCache[cacheKey] = msg.Objects
 		m.s3ObjectsLoadedFor = msg.Bucket
 		m.objects = msg.Objects
 		m.selectedObjectIndex = 0
 		m.loading = false
 		m.errorMsg = ""
+		m.appendCommandLog("list", msg.Bucket+"/"+m.currentPrefix, fmt.Sprintf("%d objects", len(msg.Objects)), nil)
 		return m, nil
 
 	case s3ObjectDeletedMsg:
 		m.loading = false
-		delete(m.s3ObjectsCache, msg.Bucket)
+		m.clearS3BucketCache(msg.Bucket)
+		m.appendCommandLog("delete", msg.Bucket+"/"+msg.Key, "object deleted", nil)
 		if m.s3ObjectsLoadedFor == msg.Bucket {
 			m.s3ObjectsLoadedFor = ""
 		}
@@ -103,8 +125,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case s3BucketDeletedMsg:
 		m.loading = false
 		m.appendCommandLog("delete bucket", msg.Bucket, "bucket deleted", nil)
-		delete(m.s3ObjectsCache, msg.Bucket)
+		m.clearS3BucketCache(msg.Bucket)
 		m.s3ObjectsLoadedFor = ""
+		m.currentPrefix = ""
+		m.prefixStack = nil
 		m.buckets = nil
 		m.selectedBucketIndex = 0
 		m.selectedObjectIndex = 0
@@ -117,18 +141,36 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.buckets = nil
 		m.selectedBucketIndex = 0
 		m.selectedObjectIndex = 0
+		m.currentPrefix = ""
+		m.prefixStack = nil
 		m.s3Focus = focusBuckets
 		return m, tea.Batch(m.setStatusMessage(fmt.Sprintf("Bucket \"%s\" created successfully!", msg.Bucket)), m.loadS3BucketsCmd())
 
 	case s3FolderCreatedMsg:
 		m.loading = false
 		m.appendCommandLog("create folder", msg.Bucket+"/"+msg.Key, "folder created", nil)
-		delete(m.s3ObjectsCache, msg.Bucket)
+		m.clearS3BucketCache(msg.Bucket)
 		m.s3ObjectsLoadedFor = ""
 		if msg.Bucket != "" {
 			return m, tea.Batch(m.setStatusMessage(fmt.Sprintf("Folder \"%s\" created successfully!", msg.Key)), m.loadS3ObjectsCmd(msg.Bucket))
 		}
 		return m, m.setStatusMessage(fmt.Sprintf("Folder \"%s\" created successfully!", msg.Key))
+
+	case progressMsg:
+		m.progress = newProgressBar(msg.Operation, m.width-4)
+		m.progress.percent = msg.Percent
+		if msg.Percent >= 100 {
+			m.showProgress = false
+			m.progressTracker = nil
+			return m, nil
+		}
+		return m, m.progressTickCmd()
+
+	case progressDoneMsg:
+		m.showProgress = false
+		m.progressTracker = nil
+		result := msg.Result
+		return m, func() tea.Msg { return result }
 
 	case s3ObjectDownloadedMsg:
 		m.loading = false
@@ -138,9 +180,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case s3ObjectUploadedMsg:
 		m.loading = false
 		m.appendCommandLog("upload object", msg.Bucket+"/"+msg.Key, "object uploaded", nil)
-		delete(m.s3ObjectsCache, msg.Bucket)
+		m.clearS3BucketCache(msg.Bucket)
 		m.s3ObjectsLoadedFor = ""
 		return m, tea.Batch(m.setStatusMessage(fmt.Sprintf("Object %q uploaded to bucket %q", msg.Key, msg.Bucket)), m.loadS3ObjectsCmd(msg.Bucket))
+
+	case s3VersionsLoadedMsg:
+		m.loading = false
+		m.errorMsg = ""
+		m.objectVersions = msg.Versions
+		m.versionObjectKey = msg.Key
+		m.selectedVersionIndex = 0
+		m.appendCommandLog("list", "versions", fmt.Sprintf("%d versions loaded", len(msg.Versions)), nil)
+		return m, nil
+
+	case s3VersionDeletedMsg:
+		m.loading = false
+		m.appendCommandLog("delete version", msg.Bucket+"/"+msg.Key+":"+msg.VersionID, "version deleted", nil)
+		return m, m.loadS3ObjectVersionsCmd(msg.Bucket, msg.Key)
 
 	case sqsQueuesLoadedMsg:
 		m.queues = msg.Queues
@@ -148,6 +204,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loading = false
 		m.errorMsg = ""
 		m.queueSubscriptions = nil
+		m.appendCommandLog("list", "queues", fmt.Sprintf("%d queues loaded", len(msg.Queues)), nil)
 		if m.activeTab == panelSQS && len(m.queues) > 0 {
 			q := m.queues[m.selectedQueueIndex]
 			return m, m.loadSQSQueueSubscriptionsCmd(q.URL, q.ARN)
@@ -185,15 +242,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case sqsMessagesLoadedMsg:
 		m.peekMessages = msg.Messages
+		m.selectedPeekIndex = 0
 		m.showPeekModal = true
 		m.loading = false
 		m.errorMsg = ""
 		return m, nil
 
+	case sqsMessagesDeletedMsg:
+		m.loading = false
+		m.peekMessages = nil
+		m.selectedPeekIndex = 0
+		m.showPeekModal = false
+		m.appendCommandLog("delete messages", msg.QueueURL, fmt.Sprintf("%d messages deleted", msg.Count), nil)
+		return m, tea.Batch(m.setStatusMessage(fmt.Sprintf("Deleted %d SQS message(s)!", msg.Count)), m.loadSQSQueuesCmd())
+
 	case sqsSubscriptionsLoadedMsg:
 		m.queueSubscriptions = msg.Subscriptions
 		m.loading = false
 		m.errorMsg = ""
+		m.appendCommandLog("list", "queue subscriptions", fmt.Sprintf("%d subscriptions", len(msg.Subscriptions)), nil)
 		return m, nil
 
 	case snsTopicsLoadedMsg:
@@ -201,6 +268,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.allSubscriptions = msg.AllSubscriptions
 		m.loading = false
 		m.errorMsg = ""
+		m.appendCommandLog("list", "topics", fmt.Sprintf("%d topics loaded", len(msg.Topics)), nil)
 		if len(m.topics) > 0 && m.selectedTopicIndex >= len(m.topics) {
 			m.selectedTopicIndex = 0
 		}
@@ -229,6 +297,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.secrets = msg.Secrets
 		m.loading = false
 		m.errorMsg = ""
+		m.appendCommandLog("list", "secrets", fmt.Sprintf("%d secrets loaded", len(msg.Secrets)), nil)
 		if len(m.secrets) > 0 && m.selectedSecretIndex >= len(m.secrets) {
 			m.selectedSecretIndex = 0
 		}
@@ -254,6 +323,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refreshSecretValueViewport()
 		m.loading = false
 		m.errorMsg = ""
+		m.appendCommandLog("list", "secret details", fmt.Sprintf("%d versions", len(msg.Versions)), nil)
 		if len(m.secrets) > 0 && m.selectedSecretIndex < len(m.secrets) {
 			m.secrets[m.selectedSecretIndex] = msg.Secret
 		}
@@ -298,6 +368,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.loading = false
 		m.errorMsg = ""
+		m.appendCommandLog("list", "subscriptions", fmt.Sprintf("%d subscriptions loaded", len(m.subscriptions)), nil)
 		return m, nil
 
 	case snsSubscriptionCreatedMsg:
@@ -395,6 +466,52 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.configureInspectionViewport()
 		return m, nil
 
+	case profilesLoadedMsg:
+		m.profileList = msg.Profiles
+		m.profileCursor = 0
+		return m, nil
+
+	case profileSwitchedMsg:
+		m.config = msg.Config
+		m.leftPanelRatio = msg.Config.LeftPanelRatio
+		m.syncSettingsInputsFromConfig()
+		m.ensureActiveTabVisible()
+		m.loading = false
+		m.appendCommandLog("profile", msg.Name, "profile switched", nil)
+		cmds = []tea.Cmd{m.setStatusMessage("Switched to profile: " + msg.Name)}
+		if reload := m.reloadTabCmd(); reload != nil {
+			cmds = append(cmds, reload)
+		}
+		return m, tea.Batch(cmds...)
+
+	case profileSavedMsg:
+		m.config = msg.Config
+		m.leftPanelRatio = msg.Config.LeftPanelRatio
+		m.syncSettingsInputsFromConfig()
+		m.ensureActiveTabVisible()
+		m.loading = false
+		m.appendCommandLog("profile", msg.Name, "profile saved", nil)
+		return m, m.setStatusMessage("Profile saved: " + msg.Name)
+
+	case profileDeletedMsg:
+		m.loading = false
+		m.appendCommandLog("profile", msg.Name, "profile deleted", nil)
+		if msg.Name == m.config.ActiveProfile || m.config == nil {
+			m.config = msg.Config
+			m.leftPanelRatio = msg.Config.LeftPanelRatio
+			m.syncSettingsInputsFromConfig()
+			m.ensureActiveTabVisible()
+		}
+		m.showProfileModal = true
+		m.profileDeleteName = ""
+		m.profileCreateInput.Blur()
+		m.profileCreateInput.SetValue("")
+		cmds = []tea.Cmd{m.setStatusMessage("Profile deleted: " + msg.Name), m.listProfilesCmd()}
+		if reload := m.reloadTabCmd(); reload != nil {
+			cmds = append(cmds, reload)
+		}
+		return m, tea.Batch(cmds...)
+
 	case profileExportedMsg:
 		m.loading = false
 		m.appendCommandLog("export snapshot", msg.Path, "snapshot exported", nil)
@@ -402,6 +519,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.config.SnapshotPath = msg.Path
 		}
 		return m, m.setStatusMessage(fmt.Sprintf("Snapshot exported to %s", msg.Path))
+
+	case singleResourceExportedMsg:
+		m.loading = false
+		m.appendCommandLog("export resource", msg.Path, "resource exported", nil)
+		return m, m.setStatusMessage(fmt.Sprintf("Resource exported to %s", msg.Path))
 
 	case profileImportedMsg:
 		if cfg := msg.Config; cfg != nil {
@@ -424,6 +546,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loading = false
 		return m, m.setStatusMessage(msg.Message)
 
+	case sdkLogMsg:
+		m.appendCommandLog("sdk", "AWS SDK", msg.Text, nil)
+		return m, m.logCaptureCmd()
+
+	case logTickMsg:
+		return m, m.logCaptureCmd()
+
 	case errMsg:
 		errStr := msg.Error.Error()
 		m.loading = false
@@ -442,6 +571,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.statusMsgID == msg.id {
 			m.statusMsg = ""
 			m.errorMsg = ""
+		}
+		return m, nil
+
+	case tea.MouseMsg:
+		if m.anyModalOpen() {
+			return m, nil
+		}
+		switch {
+		case msg.Button == tea.MouseButtonWheelDown:
+			m.moveSelectionDown()
+			return m, m.triggerSubpanelLoadCmd()
+		case msg.Button == tea.MouseButtonWheelUp:
+			m.moveSelectionUp()
+			return m, m.triggerSubpanelLoadCmd()
+		case msg.Action == tea.MouseActionPress:
+			return m.handleMouseClick(msg)
 		}
 		return m, nil
 
@@ -486,7 +631,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.s3FolderInput.SetValue("")
 				if bucket != "" && prefix != "" {
 					m.loading = true
-					delete(m.s3ObjectsCache, bucket)
+					m.clearS3BucketCache(bucket)
 					m.s3ObjectsLoadedFor = ""
 					return m, m.createS3FolderCmd(bucket, prefix)
 				}
@@ -534,7 +679,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						key = defaultS3ObjectKey(filePath)
 					}
 					m.loading = true
-					delete(m.s3ObjectsCache, bucket)
+					m.clearS3BucketCache(bucket)
 					m.s3ObjectsLoadedFor = ""
 					return m, m.uploadS3ObjectCmd(bucket, filePath, key)
 				}
@@ -569,6 +714,33 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if bucket := m.selectedS3BucketName(); bucket != "" && m.selectedObjectIndex < len(m.objects) {
 					return m, m.downloadS3ObjectCmd(bucket, m.objects[m.selectedObjectIndex].Key)
 				}
+			}
+			return m, nil
+		}
+
+		if m.showVersionsModal {
+			switch msg.String() {
+			case "esc", "v", "V", "ctrl+v":
+				m.showVersionsModal = false
+				return m, nil
+			case "up", "k":
+				if m.selectedVersionIndex > 0 {
+					m.selectedVersionIndex--
+				}
+				return m, nil
+			case "down", "j":
+				if m.selectedVersionIndex < len(m.objectVersions)-1 {
+					m.selectedVersionIndex++
+				}
+				return m, nil
+			case "d":
+				if len(m.objectVersions) > 0 && m.selectedVersionIndex < len(m.objectVersions) {
+					v := m.objectVersions[m.selectedVersionIndex]
+					bucket := m.selectedS3BucketName()
+					m.loading = true
+					return m, m.deleteS3ObjectVersionCmd(bucket, m.versionObjectKey, v.VersionID)
+				}
+				return m, nil
 			}
 			return m, nil
 		}
@@ -1160,6 +1332,30 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+		if m.showSingleExportModal {
+			switch msg.String() {
+			case "esc":
+				m.showSingleExportModal = false
+				m.singleExportPathInput.Blur()
+				m.singleExportPathInput.SetValue("")
+				return m, nil
+			case "enter":
+				path := m.singleExportPathInput.Value()
+				m.showSingleExportModal = false
+				m.singleExportPathInput.Blur()
+				m.singleExportPathInput.SetValue("")
+				if path != "" {
+					m.loading = true
+					return m, m.exportSingleResourceCmd(path)
+				}
+				return m, nil
+			default:
+				var cmd tea.Cmd
+				m.singleExportPathInput, cmd = m.singleExportPathInput.Update(msg)
+				return m, cmd
+			}
+		}
+
 		if m.showSqsBatchSubModal {
 			switch msg.String() {
 			case "esc":
@@ -1203,7 +1399,42 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if msg.String() == "esc" || msg.String() == "enter" {
 				m.showPeekModal = false
 				m.peekMessages = nil
+				m.selectedPeekIndex = 0
 				return m, nil
+			}
+			if msg.String() == "j" || msg.String() == "down" {
+				if len(m.peekMessages) > 0 && m.selectedPeekIndex < len(m.peekMessages)-1 {
+					m.selectedPeekIndex++
+				}
+				return m, nil
+			}
+			if msg.String() == "k" || msg.String() == "up" {
+				if m.selectedPeekIndex > 0 {
+					m.selectedPeekIndex--
+				}
+				return m, nil
+			}
+			if msg.String() == "x" || msg.String() == "X" {
+				if len(m.peekMessages) == 0 {
+					return m, nil
+				}
+				handles := []string{m.peekMessages[m.selectedPeekIndex].ReceiptHandle}
+				if msg.String() == "X" {
+					handles = nil
+					for _, pm := range m.peekMessages {
+						if pm.ReceiptHandle != "" {
+							handles = append(handles, pm.ReceiptHandle)
+						}
+					}
+				}
+				if len(handles) == 0 {
+					return m, nil
+				}
+				if len(m.queues) == 0 || m.selectedQueueIndex >= len(m.queues) {
+					return m, nil
+				}
+				m.loading = true
+				return m, m.deleteSQSMessagesCmd(m.queues[m.selectedQueueIndex].URL, handles)
 			}
 			return m, nil
 		}
@@ -1250,6 +1481,96 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, m.copySelectedTextCmd()
 			}
 			return m, nil
+		}
+
+		if m.showProfileModal {
+			switch msg.String() {
+			case "esc":
+				if m.profileCreateInput.Focused() {
+					m.profileCreateInput.Blur()
+					m.profileCreateInput.SetValue("")
+					return m, nil
+				}
+				m.showProfileModal = false
+				m.profileCreateInput.Blur()
+				m.profileCreateInput.SetValue("")
+				return m, nil
+			case "up", "k":
+				if m.profileCreateInput.Focused() {
+					return m, nil
+				}
+				if m.profileCursor > 0 {
+					m.profileCursor--
+				}
+				return m, nil
+			case "down", "j":
+				if m.profileCreateInput.Focused() {
+					return m, nil
+				}
+				if m.profileCursor < len(m.profileList)-1 {
+					m.profileCursor++
+				}
+				return m, nil
+			case "enter":
+				if m.profileCreateInput.Focused() {
+					name := strings.TrimSpace(m.profileCreateInput.Value())
+					m.profileCreateInput.Blur()
+					m.profileCreateInput.SetValue("")
+					if name == "" {
+						return m, nil
+					}
+					m.showProfileModal = false
+					m.loading = true
+					return m, m.saveProfileCmd(name, m.configFromSettingsInputs())
+				}
+				if m.profileCursor < len(m.profileList) {
+					name := m.profileList[m.profileCursor]
+					m.showProfileModal = false
+					m.loading = true
+					return m, m.switchProfileCmd(name)
+				}
+				return m, nil
+			case "c":
+				if m.profileCreateInput.Focused() {
+					var cmd tea.Cmd
+					m.profileCreateInput, cmd = m.profileCreateInput.Update(msg)
+					return m, cmd
+				}
+				m.profileCreateInput.Focus()
+				return m, nil
+			case "d", "delete":
+				if m.profileCreateInput.Focused() {
+					return m, nil
+				}
+				if m.profileCursor < len(m.profileList) {
+					m.profileDeleteName = m.profileList[m.profileCursor]
+					m.showProfileModal = false
+					m.showProfileDeleteConfirm = true
+				}
+				return m, nil
+			default:
+				if m.profileCreateInput.Focused() {
+					var cmd tea.Cmd
+					m.profileCreateInput, cmd = m.profileCreateInput.Update(msg)
+					return m, cmd
+				}
+				return m, nil
+			}
+		}
+
+		if m.showProfileDeleteConfirm {
+			switch msg.String() {
+			case "y", "Y":
+				name := m.profileDeleteName
+				m.showProfileDeleteConfirm = false
+				m.profileDeleteName = ""
+				m.loading = true
+				return m, m.deleteProfileCmd(name)
+			default:
+				m.showProfileDeleteConfirm = false
+				m.profileDeleteName = ""
+				return m, nil
+			}
 		}
 
 		if m.showInspectionModal {
@@ -1445,6 +1766,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+		if m.isFilterActive() {
+			switch msg.String() {
+			case "esc":
+				m.deactivateFilter()
+				return m, nil
+			case "enter":
+				m.commitFilter()
+				return m, nil
+			default:
+				var cmd tea.Cmd
+				m.updateFilterInput(msg)
+				return m, cmd
+			}
+		}
+
 		switch {
 		case key.Matches(msg, keys.Quit):
 			return m, tea.Quit
@@ -1458,6 +1794,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.refreshLogViewport()
 			return m, nil
 
+		case key.Matches(msg, keys.Profile):
+			m.showProfileModal = true
+			m.profileCreateInput.SetValue("")
+			m.profileCreateInput.Blur()
+			return m, m.listProfilesCmd()
+
 		case msg.String() == "1" || msg.String() == "2" || msg.String() == "3" || msg.String() == "4" || msg.String() == "5":
 			if tabIndex := int(msg.String()[0] - '0'); tabIndex >= 1 && tabIndex <= 5 {
 				if panel, ok := m.panelForTabIndex(tabIndex); ok {
@@ -1470,6 +1812,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case msg.String() == "y":
 			return m, m.copySelectedTextCmd()
+
+		case key.Matches(msg, keys.CopyARN):
+			return m, m.copyResourceARNCmd()
+
+		case key.Matches(msg, keys.Filter):
+			if !m.isFilterActive() && m.activeTab != panelConfig {
+				m.activateFilter()
+				return m, nil
+			}
+
+		case key.Matches(msg, keys.Sort):
+			if m.activeTab != panelConfig {
+				return m, m.cycleSort()
+			}
 
 		case msg.String() == "esc" && m.selectionActive:
 			m.clearSelection()
@@ -1540,12 +1896,28 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.s3Focus == focusBuckets {
 					m.s3Focus = focusObjects
 					m.selectedObjectIndex = 0
+				} else if m.s3Focus == focusObjects && m.selectedObjectIndex < len(m.objects) {
+					obj := m.objects[m.selectedObjectIndex]
+					if strings.HasSuffix(obj.Key, "/") {
+						m.prefixStack = append(m.prefixStack, m.currentPrefix)
+						m.currentPrefix = obj.Key
+						m.s3ObjectsLoadedFor = ""
+						bucket := m.selectedS3BucketName()
+						return m, m.loadS3ObjectsCmd(bucket)
+					}
 				}
 			}
 
 		case key.Matches(msg, keys.Left) || key.Matches(msg, keys.Esc):
 			switch m.activeTab {
 			case panelS3:
+				if m.s3Focus == focusObjects && len(m.prefixStack) > 0 {
+					m.currentPrefix = m.prefixStack[len(m.prefixStack)-1]
+					m.prefixStack = m.prefixStack[:len(m.prefixStack)-1]
+					m.s3ObjectsLoadedFor = ""
+					bucket := m.selectedS3BucketName()
+					return m, m.loadS3ObjectsCmd(bucket)
+				}
 				if m.s3Focus == focusObjects {
 					m.s3Focus = focusBuckets
 				}
@@ -1557,6 +1929,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.snsSubFocus == focusSubs {
 					m.snsSubFocus = focusTopics
 				}
+			}
+
+		case msg.String() == "backspace":
+			if m.activeTab == panelS3 && m.s3Focus == focusObjects && len(m.prefixStack) > 0 {
+				m.currentPrefix = m.prefixStack[len(m.prefixStack)-1]
+				m.prefixStack = m.prefixStack[:len(m.prefixStack)-1]
+				m.s3ObjectsLoadedFor = ""
+				bucket := m.selectedS3BucketName()
+				return m, m.loadS3ObjectsCmd(bucket)
 			}
 
 		case key.Matches(msg, keys.S3Delete) || key.Matches(msg, keys.SQSDelete) || key.Matches(msg, keys.SNSDelete) || key.Matches(msg, keys.SQSSubDelete):
@@ -1636,6 +2017,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.activeTab == panelS3 && m.s3Focus == focusObjects && len(m.objects) > 0 {
 				m.showS3PreviewModal = true
 				return m, nil
+			}
+
+		case key.Matches(msg, keys.S3Version):
+			if m.activeTab == panelS3 && m.s3Focus == focusObjects && len(m.objects) > 0 {
+				bucket := m.selectedS3BucketName()
+				key := m.objects[m.selectedObjectIndex].Key
+				m.showVersionsModal = true
+				m.selectedVersionIndex = 0
+				m.loading = true
+				return m, m.loadS3ObjectVersionsCmd(bucket, key)
 			}
 
 		case key.Matches(msg, keys.S3Folder):
@@ -1753,6 +2144,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 			}
+
+		case msg.String() == "e" && m.canSingleExport():
+			m.singleExportPathInput.SetValue(usecase.DefaultSnapshotPath())
+			m.showSingleExportModal = true
+			m.singleExportPathInput.Focus()
+			return m, nil
 
 		case key.Matches(msg, keys.SNSImportYaml):
 			if m.activeTab == panelSNS && m.snsSubFocus == focusSubs {
@@ -1906,7 +2303,8 @@ func (m *Model) triggerSubpanelLoadCmd() tea.Cmd {
 		if m.s3Focus == focusBuckets && len(m.buckets) > 0 && m.selectedBucketIndex < len(m.buckets) {
 			bucket := m.buckets[m.selectedBucketIndex].Name
 			if m.s3ObjectsLoadedFor == bucket {
-				m.objects = m.s3ObjectsCache[bucket]
+				cacheKey := s3CacheKey(bucket, m.currentPrefix)
+				m.objects = m.s3ObjectsCache[cacheKey]
 				return nil
 			}
 			return m.loadS3ObjectsCmd(bucket)
@@ -2001,4 +2399,415 @@ func parseMessageAttributes(raw string) map[string]string {
 		}
 	}
 	return attrs
+}
+
+func (m *Model) isFilterActive() bool {
+	switch m.activeTab {
+	case panelS3:
+		return m.s3PanelState.filterActive
+	case panelSQS:
+		return m.sqsPanelState.filterActive
+	case panelSNS:
+		return m.snsPanelState.filterActive
+	case panelSecrets:
+		return m.secretsPanelState.filterActive
+	}
+	return false
+}
+
+func (m *Model) activateFilter() {
+	switch m.activeTab {
+	case panelS3:
+		m.s3PanelState.filterActive = true
+		m.s3PanelState.filterInput.SetValue("")
+		m.s3PanelState.filterInput.Focus()
+	case panelSQS:
+		m.sqsPanelState.filterActive = true
+		m.sqsPanelState.filterInput.SetValue("")
+		m.sqsPanelState.filterInput.Focus()
+	case panelSNS:
+		m.snsPanelState.filterActive = true
+		m.snsPanelState.filterInput.SetValue("")
+		m.snsPanelState.filterInput.Focus()
+	case panelSecrets:
+		m.secretsPanelState.filterActive = true
+		m.secretsPanelState.filterInput.SetValue("")
+		m.secretsPanelState.filterInput.Focus()
+	}
+}
+
+func (m *Model) deactivateFilter() {
+	switch m.activeTab {
+	case panelS3:
+		m.s3PanelState.filterActive = false
+		m.s3PanelState.filterQuery = ""
+		m.s3PanelState.filterInput.Blur()
+		m.s3PanelState.filterInput.SetValue("")
+	case panelSQS:
+		m.sqsPanelState.filterActive = false
+		m.sqsPanelState.filterQuery = ""
+		m.sqsPanelState.filterInput.Blur()
+		m.sqsPanelState.filterInput.SetValue("")
+	case panelSNS:
+		m.snsPanelState.filterActive = false
+		m.snsPanelState.filterQuery = ""
+		m.snsPanelState.filterInput.Blur()
+		m.snsPanelState.filterInput.SetValue("")
+	case panelSecrets:
+		m.secretsPanelState.filterActive = false
+		m.secretsPanelState.filterQuery = ""
+		m.secretsPanelState.filterInput.Blur()
+		m.secretsPanelState.filterInput.SetValue("")
+	}
+}
+
+func (m *Model) commitFilter() {
+	switch m.activeTab {
+	case panelS3:
+		m.s3PanelState.filterQuery = m.s3PanelState.filterInput.Value()
+		m.s3PanelState.filterInput.Blur()
+	case panelSQS:
+		m.sqsPanelState.filterQuery = m.sqsPanelState.filterInput.Value()
+		m.sqsPanelState.filterInput.Blur()
+	case panelSNS:
+		m.snsPanelState.filterQuery = m.snsPanelState.filterInput.Value()
+		m.snsPanelState.filterInput.Blur()
+	case panelSecrets:
+		m.secretsPanelState.filterQuery = m.secretsPanelState.filterInput.Value()
+		m.secretsPanelState.filterInput.Blur()
+	}
+}
+
+func (m *Model) updateFilterInput(msg tea.KeyMsg) {
+	switch m.activeTab {
+	case panelS3:
+		m.s3PanelState.filterInput, _ = m.s3PanelState.filterInput.Update(msg)
+		m.s3PanelState.filterQuery = m.s3PanelState.filterInput.Value()
+	case panelSQS:
+		m.sqsPanelState.filterInput, _ = m.sqsPanelState.filterInput.Update(msg)
+		m.sqsPanelState.filterQuery = m.sqsPanelState.filterInput.Value()
+	case panelSNS:
+		m.snsPanelState.filterInput, _ = m.snsPanelState.filterInput.Update(msg)
+		m.snsPanelState.filterQuery = m.snsPanelState.filterInput.Value()
+	case panelSecrets:
+		m.secretsPanelState.filterInput, _ = m.secretsPanelState.filterInput.Update(msg)
+		m.secretsPanelState.filterQuery = m.secretsPanelState.filterInput.Value()
+	}
+}
+
+func (m *Model) cycleSort() tea.Cmd {
+	fieldNames := map[int]string{}
+	var maxField int
+	switch m.activeTab {
+	case panelS3:
+		fieldNames = map[int]string{0: "name", 1: "size", 2: "date"}
+		maxField = 2
+		m.s3PanelState.sortField = (m.s3PanelState.sortField + 1) % (maxField + 1)
+		m.s3PanelState.sortAscending = !m.s3PanelState.sortAscending
+		if m.s3PanelState.sortField == 0 {
+			m.s3PanelState.sortAscending = true
+		}
+	case panelSQS:
+		fieldNames = map[int]string{0: "name", 1: "available", 2: "delayed", 3: "in-flight"}
+		maxField = 3
+		m.sqsPanelState.sortField = (m.sqsPanelState.sortField + 1) % (maxField + 1)
+		m.sqsPanelState.sortAscending = !m.sqsPanelState.sortAscending
+		if m.sqsPanelState.sortField == 0 {
+			m.sqsPanelState.sortAscending = true
+		}
+	case panelSNS:
+		fieldNames = map[int]string{0: "name"}
+		maxField = 0
+		m.snsPanelState.sortField = (m.snsPanelState.sortField + 1) % (maxField + 1)
+		m.snsPanelState.sortAscending = !m.snsPanelState.sortAscending
+	case panelSecrets:
+		fieldNames = map[int]string{0: "name", 1: "date"}
+		maxField = 1
+		m.secretsPanelState.sortField = (m.secretsPanelState.sortField + 1) % (maxField + 1)
+		m.secretsPanelState.sortAscending = !m.secretsPanelState.sortAscending
+		if m.secretsPanelState.sortField == 0 {
+			m.secretsPanelState.sortAscending = true
+		}
+	}
+	arrow := "↑"
+	if !m.currentSortAscending() {
+		arrow = "↓"
+	}
+	name := fieldNames[m.currentSortField()]
+	return m.setStatusMessage(fmt.Sprintf("Sorting by %s %s", name, arrow))
+}
+
+func (m *Model) currentSortField() int {
+	switch m.activeTab {
+	case panelS3:
+		return m.s3PanelState.sortField
+	case panelSQS:
+		return m.sqsPanelState.sortField
+	case panelSNS:
+		return m.snsPanelState.sortField
+	case panelSecrets:
+		return m.secretsPanelState.sortField
+	}
+	return 0
+}
+
+func (m *Model) currentSortAscending() bool {
+	switch m.activeTab {
+	case panelS3:
+		return m.s3PanelState.sortAscending
+	case panelSQS:
+		return m.sqsPanelState.sortAscending
+	case panelSNS:
+		return m.snsPanelState.sortAscending
+	case panelSecrets:
+		return m.secretsPanelState.sortAscending
+	}
+	return true
+}
+
+func (m *Model) handleMouseClick(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	x, y := msg.X, msg.Y
+
+	if y == 1 {
+		return m.handleTabBarClick(x)
+	}
+
+	headerHeight := lipgloss.Height(m.renderHeader())
+	if y <= headerHeight {
+		return m, nil
+	}
+
+	footerLine := m.height - 1
+	if y == footerLine {
+		return m, nil
+	}
+
+	tabBarHeight := lipgloss.Height(m.renderTabBar())
+	bodyStartY := headerHeight + tabBarHeight + 2
+
+	if y < bodyStartY {
+		return m, nil
+	}
+
+	relY := y - bodyStartY
+
+	if m.activeTab == panelS3 && m.s3Focus == focusObjects {
+		if m.handleBreadcrumbClick(x) {
+			return m, nil
+		}
+	}
+
+	return m.handleListClick(x, relY)
+}
+
+func (m *Model) handleTabBarClick(x int) (tea.Model, tea.Cmd) {
+	visible := m.visiblePanels()
+	pos := 0
+	for i, panel := range visible {
+		label := m.tabLabel(panel, i+1)
+		labelLen := lipgloss.Width(label) + 3
+		if x >= pos && x < pos+labelLen {
+			return m, m.activatePanel(panel)
+		}
+		pos += labelLen
+	}
+	return m, nil
+}
+
+func (m *Model) handleBreadcrumbClick(x int) bool {
+	if len(m.breadcrumbPositions) == 0 {
+		return false
+	}
+
+	cumulativePrefix := ""
+	for i := len(m.breadcrumbPositions) - 1; i >= 0; i-- {
+		pos := m.breadcrumbPositions[i]
+		if x >= pos {
+			if i == 0 {
+				m.currentPrefix = ""
+				m.prefixStack = nil
+			} else {
+				segments := strings.Split(strings.TrimSuffix(m.currentPrefix, "/"), "/")
+				if i-1 < len(segments) {
+					m.currentPrefix = strings.Join(segments[:i-1], "/")
+					if m.currentPrefix != "" {
+						m.currentPrefix += "/"
+					}
+				}
+				m.prefixStack = m.prefixStack[:0]
+			}
+			_ = cumulativePrefix
+			m.s3ObjectsLoadedFor = ""
+			return true
+		}
+	}
+	return false
+}
+
+func (m Model) itemsStartRelY(panel activePanel, focus focusArea, filterActive, filterHasQuery bool) int {
+	contentLines := 4
+	switch {
+	case panel == panelS3 && focus == focusBuckets:
+		contentLines = 4 // \n + pills + extra + extra
+	case panel == panelS3 && focus == focusObjects:
+		contentLines = 6 // \n + breadcrumb + \n\n + header + ---
+	case panel == panelSQS && focus == focusQueues:
+		contentLines = 4 // \n + pills + sort + \n
+	case panel == panelSQS && focus == focusQueueSubs:
+		contentLines = 4 // \n + pills + \n + caption
+	case panel == panelSNS && focus == focusTopics:
+		contentLines = 4 // \n + pills + sort + \n
+	case panel == panelSNS && focus == focusSubs:
+		contentLines = 5 // \n + pills + detail + \n + caption
+	case panel == panelSecrets && focus == focusSecrets:
+		contentLines = 4 // \n + pills + sort + \n
+	case panel == panelSecrets && focus == focusSecretVersions:
+		contentLines = 9 // \n + pills + 5*d + \n + caption
+	}
+	if filterActive {
+		contentLines += 2 // filter input + \n
+		if filterHasQuery {
+			contentLines++ // count line
+		}
+	}
+	return 1 + contentLines
+}
+
+func (m *Model) handleListClick(x, relY int) (tea.Model, tea.Cmd) {
+	innerHeight := m.mainPanelHeight() - 2
+	leftWidth := int(float64(m.width-4) * m.panelRatioFor(m.activeTab))
+
+	var filterActive, filterHasQuery bool
+	var dataLen int
+	var selectedIdx int
+	var panelFocus focusArea
+	isRight := x >= leftWidth
+
+	switch m.activeTab {
+	case panelS3:
+		panelFocus = m.s3Focus
+		filterActive = m.s3PanelState.filterActive
+		filterHasQuery = m.s3PanelState.filterQuery != ""
+		if panelFocus == focusObjects && isRight {
+			dataLen = len(m.objects)
+			selectedIdx = m.selectedObjectIndex
+		} else if panelFocus == focusBuckets && !isRight {
+			dataLen = len(m.buckets)
+			selectedIdx = m.selectedBucketIndex
+		} else {
+			return m, nil
+		}
+	case panelSQS:
+		panelFocus = m.sqsFocus
+		filterActive = m.sqsPanelState.filterActive
+		filterHasQuery = m.sqsPanelState.filterQuery != ""
+		if panelFocus == focusQueues && !isRight {
+			dataLen = len(m.queues)
+			selectedIdx = m.selectedQueueIndex
+		} else if panelFocus == focusQueueSubs && isRight {
+			dataLen = len(m.queueSubscriptions)
+			selectedIdx = m.selectedQueueSubIndex
+		} else {
+			return m, nil
+		}
+	case panelSNS:
+		panelFocus = m.snsSubFocus
+		filterActive = m.snsPanelState.filterActive
+		filterHasQuery = m.snsPanelState.filterQuery != ""
+		if panelFocus == focusTopics && !isRight {
+			dataLen = len(m.topics)
+			selectedIdx = m.selectedTopicIndex
+		} else if panelFocus == focusSubs && isRight {
+			dataLen = len(m.subscriptions)
+			selectedIdx = m.selectedSubIndex
+		} else {
+			return m, nil
+		}
+	case panelSecrets:
+		panelFocus = m.secretsFocus
+		filterActive = m.secretsPanelState.filterActive
+		filterHasQuery = m.secretsPanelState.filterQuery != ""
+		if panelFocus == focusSecrets && !isRight {
+			dataLen = len(m.secrets)
+			selectedIdx = m.selectedSecretIndex
+		} else if panelFocus == focusSecretVersions && isRight {
+			dataLen = len(m.secretVersions)
+			selectedIdx = m.selectedSecretVersionIndex
+		} else {
+			return m, nil
+		}
+	case panelConfig:
+		return m, nil
+	default:
+		return m, nil
+	}
+
+	if dataLen == 0 {
+		return m, nil
+	}
+
+	maxVisible := innerHeight - 7
+	if filterActive {
+		maxVisible -= 3
+	}
+	if maxVisible < 1 {
+		maxVisible = 1
+	}
+	start, end := visibleRange(dataLen, selectedIdx, maxVisible)
+
+	itemStartY := m.itemsStartRelY(m.activeTab, panelFocus, filterActive, filterHasQuery)
+	idx := start + (relY - itemStartY)
+
+	if idx < start || idx >= end {
+		return m, nil
+	}
+
+	switch m.activeTab {
+	case panelS3:
+		if panelFocus == focusBuckets {
+			if idx < len(m.buckets) {
+				m.selectedBucketIndex = idx
+				return m, m.triggerSubpanelLoadCmd()
+			}
+		} else if panelFocus == focusObjects {
+			if idx < len(m.objects) {
+				m.selectedObjectIndex = idx
+			}
+		}
+	case panelSQS:
+		if panelFocus == focusQueues {
+			if idx < len(m.queues) {
+				m.selectedQueueIndex = idx
+				return m, m.triggerSubpanelLoadCmd()
+			}
+		} else if panelFocus == focusQueueSubs {
+			if idx < len(m.queueSubscriptions) {
+				m.selectedQueueSubIndex = idx
+			}
+		}
+	case panelSNS:
+		if panelFocus == focusTopics {
+			if idx < len(m.topics) {
+				m.selectedTopicIndex = idx
+				return m, m.triggerSubpanelLoadCmd()
+			}
+		} else if panelFocus == focusSubs {
+			if idx < len(m.subscriptions) {
+				m.selectedSubIndex = idx
+			}
+		}
+	case panelSecrets:
+		if panelFocus == focusSecrets {
+			if idx < len(m.secrets) {
+				m.selectedSecretIndex = idx
+				return m, m.triggerSubpanelLoadCmd()
+			}
+		} else if panelFocus == focusSecretVersions {
+			if idx < len(m.secretVersions) {
+				m.selectedSecretVersionIndex = idx
+			}
+		}
+	}
+
+	return m, nil
 }

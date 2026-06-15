@@ -21,6 +21,12 @@ import (
 
 const transientMessageDuration = 3 * time.Second
 
+func (m *Model) autoRefreshTickCmd() tea.Cmd {
+	return tea.Tick(autoRefreshInterval, func(time.Time) tea.Msg {
+		return autoRefreshTickMsg{}
+	})
+}
+
 func (m *Model) loadConfigCmd() tea.Cmd {
 	return func() tea.Msg {
 		cfg, err := m.configUseCase.GetConfig()
@@ -164,10 +170,31 @@ func resolveYamlSubscriptionQueue(entryQueue, defaultQueue, inferredQueue string
 	return "", "", fmt.Errorf("queue %q not found in the loaded SQS queues", queueRef)
 }
 
+func (m *Model) logCaptureCmd() tea.Cmd {
+	return tea.Tick(200*time.Millisecond, func(t time.Time) tea.Msg {
+		select {
+		case text := <-m.logCh:
+			return sdkLogMsg{Text: text}
+		default:
+			return logTickMsg{}
+		}
+	})
+}
+
 func clearStatusCmd(id int) tea.Cmd {
 	return tea.Tick(transientMessageDuration, func(time.Time) tea.Msg {
 		return clearStatusMsg{id: id}
 	})
+}
+
+func (m *Model) logWarn(action, target string, err error) {
+	if err == nil || m.logCh == nil {
+		return
+	}
+	select {
+	case m.logCh <- fmt.Sprintf("[%s@%s] %v", action, target, err):
+	default:
+	}
 }
 
 func (m *Model) setStatusMessage(message string) tea.Cmd {
@@ -182,6 +209,21 @@ func (m *Model) setErrorMessage(message string) tea.Cmd {
 	m.statusMsg = ""
 	m.statusMsgID++
 	return clearStatusCmd(m.statusMsgID)
+}
+
+func (m *Model) healthCheckCmd() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		if m.config == nil {
+			return healthCheckMsg{OK: false, Err: "no configuration loaded"}
+		}
+		if err := m.awsUseCase.HealthCheck(ctx, m.config); err != nil {
+			return healthCheckMsg{OK: false, Err: err.Error()}
+		}
+		return healthCheckMsg{OK: true}
+	}
 }
 
 func (m *Model) loadS3BucketsCmd() tea.Cmd {
@@ -199,14 +241,16 @@ func (m *Model) loadS3BucketsCmd() tea.Cmd {
 
 func (m *Model) loadS3ObjectsCmd(bucket string) tea.Cmd {
 	return func() tea.Msg {
-		if cached, ok := m.s3ObjectsCache[bucket]; ok {
+		prefix := m.currentPrefix
+		cacheKey := s3CacheKey(bucket, prefix)
+		if cached, ok := m.s3ObjectsCache[cacheKey]; ok {
 			return s3ObjectsLoadedMsg{Bucket: bucket, Objects: cached}
 		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 		defer cancel()
 
-		objects, err := m.awsUseCase.ListS3Objects(ctx, m.config, bucket, "")
+		objects, err := m.awsUseCase.ListS3Objects(ctx, m.config, bucket, prefix)
 		if err != nil {
 			return errMsg{Error: err}
 		}
@@ -224,6 +268,32 @@ func (m *Model) deleteS3ObjectCmd(bucket, key string) tea.Cmd {
 			return errMsg{Error: err}
 		}
 		return s3ObjectDeletedMsg{Bucket: bucket, Key: key}
+	}
+}
+
+func (m *Model) loadS3ObjectVersionsCmd(bucket, key string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+		defer cancel()
+
+		versions, err := m.awsUseCase.ListS3ObjectVersions(ctx, m.config, bucket, key)
+		if err != nil {
+			return errMsg{Error: err}
+		}
+		return s3VersionsLoadedMsg{Bucket: bucket, Key: key, Versions: versions}
+	}
+}
+
+func (m *Model) deleteS3ObjectVersionCmd(bucket, key, versionID string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+		defer cancel()
+
+		err := m.awsUseCase.DeleteS3ObjectVersion(ctx, m.config, bucket, key, versionID)
+		if err != nil {
+			return errMsg{Error: err}
+		}
+		return s3VersionDeletedMsg{Bucket: bucket, Key: key, VersionID: versionID}
 	}
 }
 
@@ -271,7 +341,7 @@ func (m *Model) createS3FolderCmd(bucket, prefix string) tea.Cmd {
 
 func (m *Model) downloadS3ObjectCmd(bucket, key string) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 		defer cancel()
 
 		home, err := os.UserHomeDir()
@@ -281,23 +351,81 @@ func (m *Model) downloadS3ObjectCmd(bucket, key string) tea.Cmd {
 		destDir := filepath.Join(home, "Downloads", "monostack")
 		destPath := filepath.Join(destDir, filepath.Base(key))
 
-		err = m.awsUseCase.DownloadS3Object(ctx, m.config, bucket, key, destPath)
-		if err != nil {
-			return errMsg{Error: err}
+		var totalSize int64
+		for _, obj := range m.objects {
+			if obj.Key == key {
+				totalSize = obj.Size
+				break
+			}
 		}
-		return s3ObjectDownloadedMsg{DestPath: destPath}
+
+		opName := fmt.Sprintf("Downloading %s", filepath.Base(key))
+		tracker := &progressTracker{
+			operation: opName,
+			total:     totalSize,
+			destPath:  destPath,
+		}
+		m.progressTracker = tracker
+		m.showProgress = true
+		m.progress = newProgressBar(opName, m.width-4)
+
+		go func() {
+			err := m.awsUseCase.DownloadS3Object(ctx, m.config, bucket, key, destPath)
+
+			tracker.mu.Lock()
+			tracker.done = true
+			if err != nil {
+				tracker.result = errMsg{Error: err}
+			} else {
+				tracker.result = s3ObjectDownloadedMsg{DestPath: destPath}
+			}
+			tracker.mu.Unlock()
+		}()
+
+		return progressMsg{Operation: opName, Percent: 0}
 	}
 }
 
 func (m *Model) uploadS3ObjectCmd(bucket, filePath, key string) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 		defer cancel()
 
-		if err := m.awsUseCase.UploadS3Object(ctx, m.config, bucket, key, filePath); err != nil {
-			return errMsg{Error: err}
+		expandedPath := expandPath(filePath)
+		var totalSize int64
+		if info, err := os.Stat(expandedPath); err == nil {
+			totalSize = info.Size()
 		}
-		return s3ObjectUploadedMsg{Bucket: bucket, Key: key}
+
+		opName := fmt.Sprintf("Uploading %s", filepath.Base(filePath))
+		tracker := &progressTracker{
+			operation: opName,
+			total:     totalSize,
+			destPath:  expandedPath,
+		}
+		m.progressTracker = tracker
+		m.showProgress = true
+		m.progress = newProgressBar(opName, m.width-4)
+
+		go func() {
+			var err error
+			if totalSize >= 5*1024*1024 {
+				err = m.awsUseCase.UploadS3ObjectMultipart(ctx, m.config, bucket, key, expandedPath)
+			} else {
+				err = m.awsUseCase.UploadS3Object(ctx, m.config, bucket, key, expandedPath)
+			}
+
+			tracker.mu.Lock()
+			tracker.done = true
+			if err != nil {
+				tracker.result = errMsg{Error: err}
+			} else {
+				tracker.result = s3ObjectUploadedMsg{Bucket: bucket, Key: key}
+			}
+			tracker.mu.Unlock()
+		}()
+
+		return progressMsg{Operation: opName, Percent: 0}
 	}
 }
 
@@ -312,6 +440,7 @@ func (m *Model) loadSQSQueuesCmd() tea.Cmd {
 		}
 		allSubs, err := m.awsUseCase.ListAllSNSSubscriptions(ctx, m.config)
 		if err != nil {
+			m.logWarn("list", "subscriptions", err)
 			allSubs = nil
 		} else if allSubs == nil {
 			allSubs = []domain.SNSSubscription{}
@@ -384,6 +513,18 @@ func (m *Model) peekSQSMessagesCmd(queueURL string) tea.Cmd {
 	}
 }
 
+func (m *Model) deleteSQSMessagesCmd(queueURL string, handles []string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+		defer cancel()
+
+		if err := m.awsUseCase.DeleteSQSMessages(ctx, m.config, queueURL, handles); err != nil {
+			return errMsg{Error: err}
+		}
+		return sqsMessagesDeletedMsg{QueueURL: queueURL, Count: len(handles)}
+	}
+}
+
 func (m *Model) sendSQSMessageCmd(queueURL, body string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
@@ -408,6 +549,7 @@ func (m *Model) loadSNSTopicsCmd() tea.Cmd {
 		}
 		allSubs, err := m.awsUseCase.ListAllSNSSubscriptions(ctx, m.config)
 		if err != nil {
+			m.logWarn("list", "all subscriptions", err)
 			allSubs = nil
 		} else if allSubs == nil {
 			allSubs = []domain.SNSSubscription{}
@@ -440,10 +582,12 @@ func (m *Model) loadSecretDetailsCmd(secretID string) tea.Cmd {
 		}
 		versions, err := m.awsUseCase.ListSecretVersions(ctx, m.config, secretID)
 		if err != nil {
+			m.logWarn("list", "secret versions", err)
 			versions = nil
 		}
 		value, err := m.awsUseCase.GetSecretValue(ctx, m.config, secretID, "", "AWSCURRENT")
 		if err != nil {
+			m.logWarn("get", "secret value", err)
 			value = domain.SecretValue{}
 		}
 		return secretDetailsLoadedMsg{Secret: secret, Versions: versions, Value: value}
@@ -577,6 +721,7 @@ func (m *Model) loadSNSSubscriptionsCmd(topicARN string) tea.Cmd {
 
 		allSubs, err := m.awsUseCase.ListAllSNSSubscriptions(ctx, m.config)
 		if err != nil {
+			m.logWarn("list", "all subscriptions", err)
 			return snsSubscriptionsLoadedMsg{Subscriptions: outgoing, IncomingSubscriptions: nil}
 		}
 		if allSubs == nil {
@@ -887,6 +1032,19 @@ func (m *Model) importProfileCmd(rawPath string) tea.Cmd {
 	}
 }
 
+func (m Model) canSingleExport() bool {
+	if m.anyModalOpen() {
+		return false
+	}
+	if m.activeTab == panelConfig {
+		return false
+	}
+	if m.activeTab == panelSNS && m.snsSubFocus == focusSubs {
+		return false
+	}
+	return true
+}
+
 func expandPath(p string) string {
 	if strings.HasPrefix(p, "~/") {
 		home, err := os.UserHomeDir()
@@ -895,6 +1053,18 @@ func expandPath(p string) string {
 		}
 	}
 	return p
+}
+
+func s3CacheKey(bucket, prefix string) string {
+	return bucket + "|" + prefix
+}
+
+func (m *Model) clearS3BucketCache(bucket string) {
+	for k := range m.s3ObjectsCache {
+		if len(k) > len(bucket) && k[:len(bucket)+1] == bucket+"|" {
+			delete(m.s3ObjectsCache, k)
+		}
+	}
 }
 
 func defaultS3ObjectKey(filePath string) string {
@@ -964,5 +1134,127 @@ func (m *Model) batchSubscribeSQSCmd(topics []toggleOption, queueARN string) tea
 		_ = m.configUseCase.SaveSubscriptions(currentSubs)
 
 		return sqsBatchSubscriptionsCreatedMsg{Count: len(createdSubs)}
+	}
+}
+
+func (m *Model) exportSingleResourceCmd(rawPath string) tea.Cmd {
+	return func() tea.Msg {
+		if m.snapshotUseCase == nil {
+			return errMsg{Error: fmt.Errorf("snapshot usecase is not configured")}
+		}
+
+		if m.config == nil {
+			return errMsg{Error: fmt.Errorf("no configuration loaded")}
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+
+		var snapshot *domain.AppProfile
+		var err error
+
+		switch m.activeTab {
+		case panelS3:
+			bucketName := ""
+			if m.selectedBucketIndex < len(m.buckets) {
+				bucketName = m.buckets[m.selectedBucketIndex].Name
+			}
+			if bucketName == "" {
+				return errMsg{Error: fmt.Errorf("no bucket selected")}
+			}
+			snapshot, err = m.snapshotUseCase.ExportS3Bucket(ctx, m.config, bucketName)
+		case panelSQS:
+			queueName := ""
+			if m.selectedQueueIndex < len(m.queues) {
+				queueName = m.queues[m.selectedQueueIndex].Name
+			}
+			if queueName == "" {
+				return errMsg{Error: fmt.Errorf("no queue selected")}
+			}
+			snapshot, err = m.snapshotUseCase.ExportSQSQueue(ctx, m.config, queueName)
+		case panelSNS:
+			topicARN := ""
+			if m.selectedTopicIndex < len(m.topics) {
+				topicARN = m.topics[m.selectedTopicIndex].ARN
+			}
+			if topicARN == "" {
+				return errMsg{Error: fmt.Errorf("no topic selected")}
+			}
+			snapshot, err = m.snapshotUseCase.ExportSNSTopic(ctx, m.config, topicARN)
+		case panelSecrets:
+			secretID := ""
+			if m.selectedSecretIndex < len(m.secrets) {
+				secretID = m.secrets[m.selectedSecretIndex].ARN
+			}
+			if secretID == "" {
+				return errMsg{Error: fmt.Errorf("no secret selected")}
+			}
+			snapshot, err = m.snapshotUseCase.ExportSecret(ctx, m.config, secretID)
+		default:
+			return errMsg{Error: fmt.Errorf("single export is not supported in this panel")}
+		}
+
+		if err != nil {
+			return errMsg{Error: err}
+		}
+
+		path, err := m.snapshotUseCase.ExportSingleResourceToPath(ctx, expandPath(rawPath), m.config, snapshot)
+		if err != nil {
+			return errMsg{Error: err}
+		}
+
+		return singleResourceExportedMsg{Path: path}
+	}
+}
+
+func (m *Model) listProfilesCmd() tea.Cmd {
+	return func() tea.Msg {
+		profiles, err := m.configUseCase.ListProfiles()
+		if err != nil {
+			return errMsg{Error: err}
+		}
+		return profilesLoadedMsg{Profiles: profiles}
+	}
+}
+
+func (m *Model) switchProfileCmd(name string) tea.Cmd {
+	return func() tea.Msg {
+		err := m.configUseCase.SwitchProfile(name)
+		if err != nil {
+			return errMsg{Error: err}
+		}
+		cfg, loadErr := m.configUseCase.GetConfig()
+		if loadErr != nil {
+			return errMsg{Error: loadErr}
+		}
+		return profileSwitchedMsg{Name: name, Config: cfg}
+	}
+}
+
+func (m *Model) saveProfileCmd(name string, cfg *domain.AWSConfig) tea.Cmd {
+	return func() tea.Msg {
+		err := m.configUseCase.SaveProfile(name, cfg)
+		if err != nil {
+			return errMsg{Error: err}
+		}
+		loaded, loadErr := m.configUseCase.GetConfig()
+		if loadErr != nil {
+			return errMsg{Error: loadErr}
+		}
+		return profileSavedMsg{Name: name, Config: loaded}
+	}
+}
+
+func (m *Model) deleteProfileCmd(name string) tea.Cmd {
+	return func() tea.Msg {
+		err := m.configUseCase.DeleteProfile(name)
+		if err != nil {
+			return errMsg{Error: err}
+		}
+		cfg, loadErr := m.configUseCase.GetConfig()
+		if loadErr != nil {
+			return errMsg{Error: loadErr}
+		}
+		return profileDeletedMsg{Name: name, Config: cfg}
 	}
 }

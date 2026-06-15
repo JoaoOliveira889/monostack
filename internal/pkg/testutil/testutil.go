@@ -7,8 +7,12 @@ import (
 )
 
 type MockConfigStore struct {
-	LoadFunc func() (*domain.AWSConfig, error)
-	SaveFunc func(cfg *domain.AWSConfig) error
+	LoadFunc          func() (*domain.AWSConfig, error)
+	SaveFunc          func(cfg *domain.AWSConfig) error
+	ListProfilesFunc  func() ([]string, error)
+	SwitchProfileFunc func(name string) error
+	SaveProfileFunc   func(name string, cfg *domain.AWSConfig) error
+	DeleteProfileFunc func(name string) error
 }
 
 func (m *MockConfigStore) Load() (*domain.AWSConfig, error) {
@@ -25,18 +29,49 @@ func (m *MockConfigStore) Save(cfg *domain.AWSConfig) error {
 	return nil
 }
 
+func (m *MockConfigStore) ListProfiles() ([]string, error) {
+	if m.ListProfilesFunc != nil {
+		return m.ListProfilesFunc()
+	}
+	return nil, nil
+}
+
+func (m *MockConfigStore) SwitchProfile(name string) error {
+	if m.SwitchProfileFunc != nil {
+		return m.SwitchProfileFunc(name)
+	}
+	return nil
+}
+
+func (m *MockConfigStore) SaveProfile(name string, cfg *domain.AWSConfig) error {
+	if m.SaveProfileFunc != nil {
+		return m.SaveProfileFunc(name, cfg)
+	}
+	return nil
+}
+
+func (m *MockConfigStore) DeleteProfile(name string) error {
+	if m.DeleteProfileFunc != nil {
+		return m.DeleteProfileFunc(name)
+	}
+	return nil
+}
+
 type MockS3Manager struct {
-	ListBucketsFunc            func(ctx context.Context, cfg *domain.AWSConfig) ([]domain.S3Bucket, error)
-	ListObjectsFunc            func(ctx context.Context, cfg *domain.AWSConfig, bucket, prefix string) ([]domain.S3Object, error)
-	DeleteObjectFunc           func(ctx context.Context, cfg *domain.AWSConfig, bucket, key string) error
-	DeleteBucketFunc           func(ctx context.Context, cfg *domain.AWSConfig, bucket string) error
-	CreateBucketFunc           func(ctx context.Context, cfg *domain.AWSConfig, name string) error
-	CreateFolderFunc           func(ctx context.Context, cfg *domain.AWSConfig, bucket, key string) error
-	UploadObjectFunc           func(ctx context.Context, cfg *domain.AWSConfig, bucket, key, filePath string) error
+	ListBucketsFunc             func(ctx context.Context, cfg *domain.AWSConfig) ([]domain.S3Bucket, error)
+	ListObjectsFunc             func(ctx context.Context, cfg *domain.AWSConfig, bucket, prefix string) ([]domain.S3Object, error)
+	DeleteObjectFunc            func(ctx context.Context, cfg *domain.AWSConfig, bucket, key string) error
+	DeleteBucketFunc            func(ctx context.Context, cfg *domain.AWSConfig, bucket string) error
+	CreateBucketFunc            func(ctx context.Context, cfg *domain.AWSConfig, name string) error
+	CreateFolderFunc            func(ctx context.Context, cfg *domain.AWSConfig, bucket, key string) error
+	UploadObjectFunc            func(ctx context.Context, cfg *domain.AWSConfig, bucket, key, filePath string) error
+	UploadObjectMultipartFunc   func(ctx context.Context, cfg *domain.AWSConfig, bucket, key, filePath string) error
 	UploadObjectWithMetadataFunc func(ctx context.Context, cfg *domain.AWSConfig, bucket, key, filePath string, metadata map[string]string) error
-	GetPresignedURLFunc        func(ctx context.Context, cfg *domain.AWSConfig, bucket, key string) (string, error)
-	DownloadObjectFunc         func(ctx context.Context, cfg *domain.AWSConfig, bucket, key, destPath string) error
-	HeadObjectFunc             func(ctx context.Context, cfg *domain.AWSConfig, bucket, key string) (string, map[string]string, error)
+	GetPresignedURLFunc         func(ctx context.Context, cfg *domain.AWSConfig, bucket, key string) (string, error)
+	DownloadObjectFunc          func(ctx context.Context, cfg *domain.AWSConfig, bucket, key, destPath string) error
+	HeadObjectFunc              func(ctx context.Context, cfg *domain.AWSConfig, bucket, key string) (string, map[string]string, error)
+	ListObjectVersionsFunc      func(ctx context.Context, cfg *domain.AWSConfig, bucket, key string) ([]domain.S3ObjectVersion, error)
+	DeleteObjectVersionFunc     func(ctx context.Context, cfg *domain.AWSConfig, bucket, key, versionID string) error
 }
 
 func (m *MockS3Manager) ListBuckets(ctx context.Context, cfg *domain.AWSConfig) ([]domain.S3Bucket, error) {
@@ -88,6 +123,13 @@ func (m *MockS3Manager) UploadObject(ctx context.Context, cfg *domain.AWSConfig,
 	return nil
 }
 
+func (m *MockS3Manager) UploadObjectMultipart(ctx context.Context, cfg *domain.AWSConfig, bucket, key, filePath string) error {
+	if m.UploadObjectMultipartFunc != nil {
+		return m.UploadObjectMultipartFunc(ctx, cfg, bucket, key, filePath)
+	}
+	return nil
+}
+
 func (m *MockS3Manager) GetPresignedURL(ctx context.Context, cfg *domain.AWSConfig, bucket, key string) (string, error) {
 	if m.GetPresignedURLFunc != nil {
 		return m.GetPresignedURLFunc(ctx, cfg, bucket, key)
@@ -116,10 +158,25 @@ func (m *MockS3Manager) DownloadObject(ctx context.Context, cfg *domain.AWSConfi
 	return nil
 }
 
+func (m *MockS3Manager) ListObjectVersions(ctx context.Context, cfg *domain.AWSConfig, bucket, key string) ([]domain.S3ObjectVersion, error) {
+	if m.ListObjectVersionsFunc != nil {
+		return m.ListObjectVersionsFunc(ctx, cfg, bucket, key)
+	}
+	return nil, nil
+}
+
+func (m *MockS3Manager) DeleteObjectVersion(ctx context.Context, cfg *domain.AWSConfig, bucket, key, versionID string) error {
+	if m.DeleteObjectVersionFunc != nil {
+		return m.DeleteObjectVersionFunc(ctx, cfg, bucket, key, versionID)
+	}
+	return nil
+}
+
 type MockSQSManager struct {
 	ListQueuesFunc         func(ctx context.Context, cfg *domain.AWSConfig) ([]domain.SQSQueue, error)
 	SendMessageFunc        func(ctx context.Context, cfg *domain.AWSConfig, queueURL, body string) error
 	ReceiveMessagesFunc    func(ctx context.Context, cfg *domain.AWSConfig, queueURL string, maxMessages int) ([]domain.SQSMessage, error)
+	DeleteMessageFunc      func(ctx context.Context, cfg *domain.AWSConfig, queueURL, receiptHandle string) error
 	PurgeQueueFunc         func(ctx context.Context, cfg *domain.AWSConfig, queueURL string) error
 	DeleteQueueFunc        func(ctx context.Context, cfg *domain.AWSConfig, queueURL string) error
 	CreateQueueFunc        func(ctx context.Context, cfg *domain.AWSConfig, name string) (string, error)
@@ -148,6 +205,13 @@ func (m *MockSQSManager) ReceiveMessages(ctx context.Context, cfg *domain.AWSCon
 		return m.ReceiveMessagesFunc(ctx, cfg, queueURL, maxMessages)
 	}
 	return nil, nil
+}
+
+func (m *MockSQSManager) DeleteMessage(ctx context.Context, cfg *domain.AWSConfig, queueURL, receiptHandle string) error {
+	if m.DeleteMessageFunc != nil {
+		return m.DeleteMessageFunc(ctx, cfg, queueURL, receiptHandle)
+	}
+	return nil
 }
 
 func (m *MockSQSManager) PurgeQueue(ctx context.Context, cfg *domain.AWSConfig, queueURL string) error {

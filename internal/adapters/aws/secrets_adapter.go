@@ -11,14 +11,15 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 
 	"monostack/internal/domain"
+	"monostack/internal/pkg/retry"
 )
 
-type SecretsAdapter struct{}
+type SecretsAdapter struct{ cache *ClientCache }
 
 var _ domain.SecretsManager = (*SecretsAdapter)(nil)
 
-func NewSecretsAdapter() *SecretsAdapter {
-	return &SecretsAdapter{}
+func NewSecretsAdapter(cache *ClientCache) *SecretsAdapter {
+	return &SecretsAdapter{cache: cache}
 }
 
 func (a *SecretsAdapter) ListSecrets(ctx context.Context, cfg *domain.AWSConfig) ([]domain.Secret, error) {
@@ -29,13 +30,16 @@ func (a *SecretsAdapter) ListSecrets(ctx context.Context, cfg *domain.AWSConfig)
 		}, nil
 	}
 
-	awsCfg, err := GetSDKConfig(ctx, cfg)
+	client, err := a.cache.Secrets(ctx, cfg)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load AWS config: %w", err)
+		return nil, fmt.Errorf("failed to get Secrets client: %w", err)
 	}
-
-	client := secretsmanager.NewFromConfig(awsCfg)
-	out, err := client.ListSecrets(ctx, &secretsmanager.ListSecretsInput{})
+	var out *secretsmanager.ListSecretsOutput
+	err = retry.Do(ctx, retry.DefaultConfig, func() error {
+		var innerErr error
+		out, innerErr = client.ListSecrets(ctx, &secretsmanager.ListSecretsInput{})
+		return innerErr
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to list secrets: %w", err)
 	}
@@ -73,13 +77,16 @@ func (a *SecretsAdapter) DescribeSecret(ctx context.Context, cfg *domain.AWSConf
 		}, nil
 	}
 
-	awsCfg, err := GetSDKConfig(ctx, cfg)
+	client, err := a.cache.Secrets(ctx, cfg)
 	if err != nil {
-		return domain.Secret{}, fmt.Errorf("failed to load AWS config: %w", err)
+		return domain.Secret{}, fmt.Errorf("failed to get Secrets client: %w", err)
 	}
-
-	client := secretsmanager.NewFromConfig(awsCfg)
-	out, err := client.DescribeSecret(ctx, &secretsmanager.DescribeSecretInput{SecretId: aws.String(secretID)})
+	var out *secretsmanager.DescribeSecretOutput
+	err = retry.Do(ctx, retry.DefaultConfig, func() error {
+		var innerErr error
+		out, innerErr = client.DescribeSecret(ctx, &secretsmanager.DescribeSecretInput{SecretId: aws.String(secretID)})
+		return innerErr
+	})
 	if err != nil {
 		return domain.Secret{}, fmt.Errorf("failed to describe secret %s: %w", secretID, err)
 	}
@@ -107,12 +114,10 @@ func (a *SecretsAdapter) GetSecretValue(ctx context.Context, cfg *domain.AWSConf
 		}, nil
 	}
 
-	awsCfg, err := GetSDKConfig(ctx, cfg)
+	client, err := a.cache.Secrets(ctx, cfg)
 	if err != nil {
-		return domain.SecretValue{}, fmt.Errorf("failed to load AWS config: %w", err)
+		return domain.SecretValue{}, fmt.Errorf("failed to get Secrets client: %w", err)
 	}
-
-	client := secretsmanager.NewFromConfig(awsCfg)
 	input := &secretsmanager.GetSecretValueInput{SecretId: aws.String(secretID)}
 	if strings.TrimSpace(versionID) != "" {
 		input.VersionId = aws.String(versionID)
@@ -120,7 +125,12 @@ func (a *SecretsAdapter) GetSecretValue(ctx context.Context, cfg *domain.AWSConf
 	if strings.TrimSpace(versionStage) != "" {
 		input.VersionStage = aws.String(versionStage)
 	}
-	out, err := client.GetSecretValue(ctx, input)
+	var out *secretsmanager.GetSecretValueOutput
+	err = retry.Do(ctx, retry.DefaultConfig, func() error {
+		var innerErr error
+		out, innerErr = client.GetSecretValue(ctx, input)
+		return innerErr
+	})
 	if err != nil {
 		return domain.SecretValue{}, fmt.Errorf("failed to get secret value for %s: %w", secretID, err)
 	}
@@ -140,13 +150,16 @@ func (a *SecretsAdapter) ListSecretVersions(ctx context.Context, cfg *domain.AWS
 		}, nil
 	}
 
-	awsCfg, err := GetSDKConfig(ctx, cfg)
+	client, err := a.cache.Secrets(ctx, cfg)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load AWS config: %w", err)
+		return nil, fmt.Errorf("failed to get Secrets client: %w", err)
 	}
-
-	client := secretsmanager.NewFromConfig(awsCfg)
-	out, err := client.ListSecretVersionIds(ctx, &secretsmanager.ListSecretVersionIdsInput{SecretId: aws.String(secretID), IncludeDeprecated: aws.Bool(true)})
+	var out *secretsmanager.ListSecretVersionIdsOutput
+	err = retry.Do(ctx, retry.DefaultConfig, func() error {
+		var innerErr error
+		out, innerErr = client.ListSecretVersionIds(ctx, &secretsmanager.ListSecretVersionIdsInput{SecretId: aws.String(secretID), IncludeDeprecated: aws.Bool(true)})
+		return innerErr
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to list versions for %s: %w", secretID, err)
 	}
@@ -175,12 +188,10 @@ func (a *SecretsAdapter) CreateSecret(ctx context.Context, cfg *domain.AWSConfig
 		}, nil
 	}
 
-	awsCfg, err := GetSDKConfig(ctx, cfg)
+	client, err := a.cache.Secrets(ctx, cfg)
 	if err != nil {
-		return domain.Secret{}, fmt.Errorf("failed to load AWS config: %w", err)
+		return domain.Secret{}, fmt.Errorf("failed to get Secrets client: %w", err)
 	}
-
-	client := secretsmanager.NewFromConfig(awsCfg)
 	input := &secretsmanager.CreateSecretInput{
 		Name:         aws.String(name),
 		SecretString: aws.String(value),
@@ -188,7 +199,12 @@ func (a *SecretsAdapter) CreateSecret(ctx context.Context, cfg *domain.AWSConfig
 	if strings.TrimSpace(description) != "" {
 		input.Description = aws.String(description)
 	}
-	out, err := client.CreateSecret(ctx, input)
+	var out *secretsmanager.CreateSecretOutput
+	err = retry.Do(ctx, retry.DefaultConfig, func() error {
+		var innerErr error
+		out, innerErr = client.CreateSecret(ctx, input)
+		return innerErr
+	})
 	if err != nil {
 		return domain.Secret{}, fmt.Errorf("failed to create secret %s: %w", name, err)
 	}
@@ -207,24 +223,30 @@ func (a *SecretsAdapter) UpdateSecretValue(ctx context.Context, cfg *domain.AWSC
 		return domain.SecretValue{VersionID: "mock-version-2", SecretString: value}, nil
 	}
 
-	awsCfg, err := GetSDKConfig(ctx, cfg)
+	client, err := a.cache.Secrets(ctx, cfg)
 	if err != nil {
-		return domain.SecretValue{}, fmt.Errorf("failed to load AWS config: %w", err)
+		return domain.SecretValue{}, fmt.Errorf("failed to get Secrets client: %w", err)
 	}
-
-	client := secretsmanager.NewFromConfig(awsCfg)
 	if strings.TrimSpace(description) != "" {
-		if _, err := client.UpdateSecret(ctx, &secretsmanager.UpdateSecretInput{
-			SecretId:    aws.String(secretID),
-			Description: aws.String(description),
+		if err := retry.Do(ctx, retry.DefaultConfig, func() error {
+			_, innerErr := client.UpdateSecret(ctx, &secretsmanager.UpdateSecretInput{
+				SecretId:    aws.String(secretID),
+				Description: aws.String(description),
+			})
+			return innerErr
 		}); err != nil {
 			return domain.SecretValue{}, fmt.Errorf("failed to update secret metadata for %s: %w", secretID, err)
 		}
 	}
 
-	out, err := client.PutSecretValue(ctx, &secretsmanager.PutSecretValueInput{
-		SecretId:     aws.String(secretID),
-		SecretString: aws.String(value),
+	var out *secretsmanager.PutSecretValueOutput
+	err = retry.Do(ctx, retry.DefaultConfig, func() error {
+		var innerErr error
+		out, innerErr = client.PutSecretValue(ctx, &secretsmanager.PutSecretValueInput{
+			SecretId:     aws.String(secretID),
+			SecretString: aws.String(value),
+		})
+		return innerErr
 	})
 	if err != nil {
 		return domain.SecretValue{}, fmt.Errorf("failed to update secret value for %s: %w", secretID, err)
@@ -251,7 +273,10 @@ func (a *SecretsAdapter) UpdateSecretVersionStage(ctx context.Context, cfg *doma
 	if strings.TrimSpace(removeFromVersionID) != "" {
 		input.RemoveFromVersionId = aws.String(removeFromVersionID)
 	}
-	_, err = client.UpdateSecretVersionStage(ctx, input)
+	err = retry.Do(ctx, retry.DefaultConfig, func() error {
+		_, innerErr := client.UpdateSecretVersionStage(ctx, input)
+		return innerErr
+	})
 	if err != nil {
 		return fmt.Errorf("failed to update secret version stage for %s: %w", secretID, err)
 	}
@@ -275,7 +300,10 @@ func (a *SecretsAdapter) DeleteSecret(ctx context.Context, cfg *domain.AWSConfig
 	} else if recoveryWindowDays > 0 {
 		input.RecoveryWindowInDays = aws.Int64(int64(recoveryWindowDays))
 	}
-	_, err = client.DeleteSecret(ctx, input)
+	err = retry.Do(ctx, retry.DefaultConfig, func() error {
+		_, innerErr := client.DeleteSecret(ctx, input)
+		return innerErr
+	})
 	if err != nil {
 		return fmt.Errorf("failed to delete secret %s: %w", secretID, err)
 	}
@@ -293,7 +321,10 @@ func (a *SecretsAdapter) RestoreSecret(ctx context.Context, cfg *domain.AWSConfi
 	}
 
 	client := secretsmanager.NewFromConfig(awsCfg)
-	_, err = client.RestoreSecret(ctx, &secretsmanager.RestoreSecretInput{SecretId: aws.String(secretID)})
+	err = retry.Do(ctx, retry.DefaultConfig, func() error {
+		_, innerErr := client.RestoreSecret(ctx, &secretsmanager.RestoreSecretInput{SecretId: aws.String(secretID)})
+		return innerErr
+	})
 	if err != nil {
 		return fmt.Errorf("failed to restore secret %s: %w", secretID, err)
 	}

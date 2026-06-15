@@ -16,6 +16,8 @@ type keyMap struct {
 	Esc        key.Binding
 	Quit       key.Binding
 	CommandLog key.Binding
+	Filter     key.Binding
+	Sort       key.Binding
 
 	S3Presign  key.Binding
 	S3Delete   key.Binding
@@ -23,6 +25,7 @@ type keyMap struct {
 	S3Create   key.Binding
 	S3Upload   key.Binding
 	S3Preview  key.Binding
+	S3Version  key.Binding
 	S3Folder   key.Binding
 
 	SQSPurge    key.Binding
@@ -47,8 +50,10 @@ type keyMap struct {
 	SQSBatchSubscribe key.Binding
 	SQSSubDelete      key.Binding
 
+	Profile       key.Binding
 	ProfileExport key.Binding
 	ProfileImport key.Binding
+	CopyARN     key.Binding
 }
 
 var keys = keyMap{
@@ -104,6 +109,14 @@ var keys = keyMap{
 		key.WithKeys("o"),
 		key.WithHelp("o", "command logs"),
 	),
+	Filter: key.NewBinding(
+		key.WithKeys("/"),
+		key.WithHelp("/", "filter list"),
+	),
+	Sort: key.NewBinding(
+		key.WithKeys("ctrl+s"),
+		key.WithHelp("ctrl+s", "sort"),
+	),
 	S3Presign: key.NewBinding(
 		key.WithKeys("b"),
 		key.WithHelp("b", "open in browser"),
@@ -128,17 +141,21 @@ var keys = keyMap{
 		key.WithKeys("v"),
 		key.WithHelp("v", "preview object"),
 	),
+	S3Version: key.NewBinding(
+		key.WithKeys("V", "ctrl+v"),
+		key.WithHelp("V", "object versions"),
+	),
 	S3Folder: key.NewBinding(
 		key.WithKeys("f"),
 		key.WithHelp("f", "create folder"),
 	),
 	SQSPurge: key.NewBinding(
-		key.WithKeys("p"),
-		key.WithHelp("p", "purge queue"),
+		key.WithKeys("m"),
+		key.WithHelp("m", "purge queue"),
 	),
 	SQSPurgeAll: key.NewBinding(
-		key.WithKeys("P"),
-		key.WithHelp("P", "purge all"),
+		key.WithKeys("M"),
+		key.WithHelp("M", "purge all"),
 	),
 	SQSView: key.NewBinding(
 		key.WithKeys("v"),
@@ -204,6 +221,10 @@ var keys = keyMap{
 		key.WithKeys("d", "x"),
 		key.WithHelp("d/x", "unsubscribe"),
 	),
+	Profile: key.NewBinding(
+		key.WithKeys("p"),
+		key.WithHelp("p", "profile switcher"),
+	),
 	ProfileExport: key.NewBinding(
 		key.WithKeys("E"),
 		key.WithHelp("E", "export snapshot"),
@@ -211,5 +232,9 @@ var keys = keyMap{
 	ProfileImport: key.NewBinding(
 		key.WithKeys("L"),
 		key.WithHelp("L", "load snapshot"),
+	),
+	CopyARN: key.NewBinding(
+		key.WithKeys("ctrl+y"),
+		key.WithHelp("ctrl+y", "copy ARN"),
 	),
 }

@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/viewport"
@@ -65,6 +67,53 @@ func isLikelyImageKey(key string) bool {
 	return false
 }
 
+func fileTypeLabel(key string) string {
+	ext := strings.ToLower(strings.TrimPrefix(filepath.Ext(strings.TrimSpace(key)), "."))
+	switch ext {
+	case "png":
+		return "PNG Image"
+	case "jpg", "jpeg":
+		return "JPEG Image"
+	case "gif":
+		return "GIF Image"
+	case "webp":
+		return "WebP Image"
+	case "svg":
+		return "SVG Image"
+	case "bmp":
+		return "BMP Image"
+	case "tiff":
+		return "TIFF Image"
+	case "pdf":
+		return "PDF Document"
+	case "json":
+		return "JSON"
+	case "xml":
+		return "XML"
+	case "yaml", "yml":
+		return "YAML"
+	case "csv":
+		return "CSV"
+	case "txt":
+		return "Plain Text"
+	case "html":
+		return "HTML"
+	case "css":
+		return "CSS"
+	case "js":
+		return "JavaScript"
+	case "zip":
+		return "ZIP Archive"
+	case "gz":
+		return "GZIP Archive"
+	default:
+		if isLikelyImageKey(key) {
+			return "Image"
+		}
+		return "File"
+	}
+}
+
 func truncateToWidth(text string, maxWidth int) string {
 	if maxWidth <= 0 {
 		return ""
@@ -88,6 +137,146 @@ func truncateToWidth(text string, maxWidth int) string {
 	}
 
 	return ellipsis
+}
+
+func filterObjects(objects []domain.S3Object, query string) []domain.S3Object {
+	if query == "" {
+		return objects
+	}
+	q := strings.ToLower(query)
+	var result []domain.S3Object
+	for _, o := range objects {
+		if strings.Contains(strings.ToLower(o.Key), q) {
+			result = append(result, o)
+		}
+	}
+	return result
+}
+
+func filterQueues(queues []domain.SQSQueue, query string) []domain.SQSQueue {
+	if query == "" {
+		return queues
+	}
+	q := strings.ToLower(query)
+	var result []domain.SQSQueue
+	for _, sq := range queues {
+		if strings.Contains(strings.ToLower(sq.Name), q) || strings.Contains(strings.ToLower(sq.URL), q) || strings.Contains(strings.ToLower(sq.ARN), q) {
+			result = append(result, sq)
+		}
+	}
+	return result
+}
+
+func filterTopics(topics []domain.SNSTopic, query string) []domain.SNSTopic {
+	if query == "" {
+		return topics
+	}
+	q := strings.ToLower(query)
+	var result []domain.SNSTopic
+	for _, t := range topics {
+		if strings.Contains(strings.ToLower(t.Name), q) || strings.Contains(strings.ToLower(t.ARN), q) {
+			result = append(result, t)
+		}
+	}
+	return result
+}
+
+func filterSecrets(secrets []domain.Secret, query string) []domain.Secret {
+	if query == "" {
+		return secrets
+	}
+	q := strings.ToLower(query)
+	var result []domain.Secret
+	for _, s := range secrets {
+		if strings.Contains(strings.ToLower(s.Name), q) || strings.Contains(strings.ToLower(s.ARN), q) {
+			result = append(result, s)
+		}
+	}
+	return result
+}
+
+func filterSubscriptions(subs []domain.SNSSubscription, query string) []domain.SNSSubscription {
+	if query == "" {
+		return subs
+	}
+	q := strings.ToLower(query)
+	var result []domain.SNSSubscription
+	for _, s := range subs {
+		if strings.Contains(strings.ToLower(s.Endpoint), q) || strings.Contains(strings.ToLower(s.TopicARN), q) || strings.Contains(strings.ToLower(s.ARN), q) {
+			result = append(result, s)
+		}
+	}
+	return result
+}
+
+func sortS3Objects(objects []domain.S3Object, field int, asc bool) {
+	sort.SliceStable(objects, func(i, j int) bool {
+		var less bool
+		switch field {
+		case 0: // name
+			less = strings.ToLower(objects[i].Key) < strings.ToLower(objects[j].Key)
+		case 1: // size
+			less = objects[i].Size < objects[j].Size
+		case 2: // date
+			less = objects[i].LastModified < objects[j].LastModified
+		default:
+			less = strings.ToLower(objects[i].Key) < strings.ToLower(objects[j].Key)
+		}
+		if !asc {
+			return !less
+		}
+		return less
+	})
+}
+
+func sortQueues(queues []domain.SQSQueue, field int, asc bool) {
+	sort.SliceStable(queues, func(i, j int) bool {
+		var less bool
+		switch field {
+		case 0: // name
+			less = strings.ToLower(queues[i].Name) < strings.ToLower(queues[j].Name)
+		case 1: // available
+			less = queues[i].MessagesAvailable < queues[j].MessagesAvailable
+		case 2: // delayed
+			less = queues[i].MessagesDelayed < queues[j].MessagesDelayed
+		case 3: // in-flight
+			less = queues[i].MessagesNotVisible < queues[j].MessagesNotVisible
+		default:
+			less = strings.ToLower(queues[i].Name) < strings.ToLower(queues[j].Name)
+		}
+		if !asc {
+			return !less
+		}
+		return less
+	})
+}
+
+func sortTopics(topics []domain.SNSTopic, field int, asc bool) {
+	sort.SliceStable(topics, func(i, j int) bool {
+		less := strings.ToLower(topics[i].Name) < strings.ToLower(topics[j].Name)
+		if !asc {
+			return !less
+		}
+		return less
+	})
+}
+
+func sortSecrets(secrets []domain.Secret, field int, asc bool) {
+	sort.SliceStable(secrets, func(i, j int) bool {
+		var less bool
+		switch field {
+		case 0: // name
+			less = strings.ToLower(secrets[i].Name) < strings.ToLower(secrets[j].Name)
+		case 1: // date
+			less = secrets[i].LastChangedDate < secrets[j].LastChangedDate
+		default:
+			less = strings.ToLower(secrets[i].Name) < strings.ToLower(secrets[j].Name)
+		}
+		if !asc {
+			return !less
+		}
+		return less
+	})
 }
 
 func (m Model) renderMetricPill(label string, value string, accent lipgloss.Color) string {
@@ -162,10 +351,6 @@ func (m Model) renderPillRows(maxWidth int, pills ...string) string {
 		return strings.Join(rows, "\n  ")
 	}
 	return strings.Join(rows, "\n\n  ")
-}
-
-func renderCounterSummary(queue domain.SQSQueue) string {
-	return fmt.Sprintf("r:%d f:%d d:%d  %s", queue.MessagesAvailable, queue.MessagesNotVisible, queue.MessagesDelayed, queue.Name)
 }
 
 func renderRouteSummary(sub domain.SNSSubscription, managed []domain.ManagedSubscription, direction string) string {
@@ -310,6 +495,59 @@ func (m Model) renderLine(ctx selectionContext, index int, cursor int, text stri
 	return lineStyle.Render(line)
 }
 
+func (m *Model) renderS3Breadcrumb(bucket, currentPrefix string, maxWidth int) string {
+	accentStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(ui.ColorAccent)).
+		Bold(true)
+	boldStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(ui.ColorMono)).
+		Bold(true)
+	dimStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(ui.ColorSubtle))
+
+	bucketIcon := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(ui.ColorStack)).
+		Render("📁")
+
+	m.breadcrumbPositions = make([]int, 0, 4)
+
+	if currentPrefix == "" {
+		m.breadcrumbPositions = append(m.breadcrumbPositions, 2)
+		line := "  " + bucketIcon + " " + boldStyle.Render(bucket+"/")
+		return truncateToWidth(line, maxWidth)
+	}
+
+	segments := strings.Split(strings.TrimSuffix(currentPrefix, "/"), "/")
+	if len(segments) == 1 && segments[0] == "" {
+		m.breadcrumbPositions = append(m.breadcrumbPositions, 2)
+		line := "  " + bucketIcon + " " + boldStyle.Render(bucket+"/")
+		return truncateToWidth(line, maxWidth)
+	}
+
+	var parts []string
+	pos := 2
+
+	m.breadcrumbPositions = append(m.breadcrumbPositions, pos)
+	parts = append(parts, bucketIcon+" "+accentStyle.Render(bucket))
+	pos += lipgloss.Width(bucketIcon+" "+accentStyle.Render(bucket))
+
+	for i, seg := range segments {
+		if i < len(segments)-1 {
+			pos += lipgloss.Width(" "+dimStyle.Render(">")+" ")
+			m.breadcrumbPositions = append(m.breadcrumbPositions, pos)
+			parts = append(parts, dimStyle.Render(">")+" "+accentStyle.Render(seg))
+			pos += lipgloss.Width(accentStyle.Render(seg))
+		} else {
+			pos += lipgloss.Width(" "+dimStyle.Render(">")+" ")
+			m.breadcrumbPositions = append(m.breadcrumbPositions, pos)
+			parts = append(parts, dimStyle.Render(">")+" "+boldStyle.Render(seg+"/"))
+		}
+	}
+
+	line := "  " + strings.Join(parts, " ")
+	return truncateToWidth(line, maxWidth)
+}
+
 func (m Model) renderS3Panel() string {
 	leftWidth := int(float64(m.width-4) * m.panelRatioFor(panelS3))
 	if leftWidth < 15 {
@@ -319,8 +557,40 @@ func (m Model) renderS3Panel() string {
 	height := m.mainPanelHeight()
 	innerHeight := height - 2
 
+	sortS3Objects(m.objects, m.s3PanelState.sortField, m.s3PanelState.sortAscending)
+	sortArrow := " ↑"
+	if !m.s3PanelState.sortAscending {
+		sortArrow = " ↓"
+	}
+	sortLabels := map[int]string{0: "name" + sortArrow, 1: "size" + sortArrow, 2: "date" + sortArrow}
+
+	var displayObjects []domain.S3Object
+	displayObjectIndex := m.selectedObjectIndex
+	if m.s3PanelState.filterActive && m.s3PanelState.filterQuery != "" {
+		displayObjects = filterObjects(m.objects, m.s3PanelState.filterQuery)
+		displayObjectIndex = 0
+		if m.selectedObjectIndex < len(m.objects) {
+			selKey := m.objects[m.selectedObjectIndex].Key
+			for i, o := range displayObjects {
+				if o.Key == selKey {
+					displayObjectIndex = i
+					break
+				}
+			}
+		}
+	} else {
+		displayObjects = m.objects
+	}
+
 	var leftBuilder strings.Builder
 	leftBuilder.WriteString("\n")
+	if m.s3PanelState.filterActive && m.s3Focus == focusBuckets {
+		leftBuilder.WriteString("  " + m.s3PanelState.filterInput.View() + "\n")
+		if m.s3PanelState.filterQuery != "" {
+			leftBuilder.WriteString("  " + m.styles.InfoText.Render(fmt.Sprintf("[%d] of [%d]", len(m.buckets), len(m.buckets))) + "\n")
+		}
+		leftBuilder.WriteString("\n")
+	}
 	if len(m.buckets) == 0 {
 		leftBuilder.WriteString(m.styles.InfoText.Render("  No buckets found"))
 	} else {
@@ -331,13 +601,20 @@ func (m Model) renderS3Panel() string {
 		) + "\n\n")
 
 		maxVisibleBuckets := innerHeight - 7
+		if m.s3PanelState.filterActive {
+			maxVisibleBuckets -= 3
+		}
+		if maxVisibleBuckets < 1 {
+			maxVisibleBuckets = 1
+		}
 		startB, endB := visibleRange(len(m.buckets), m.selectedBucketIndex, maxVisibleBuckets)
 
 		for i := startB; i < endB; i++ {
 			bucketName := m.buckets[i].Name
 			objectCountLabel := ""
 			if m.s3ObjectsLoadedFor == bucketName {
-				objectCountLabel = fmt.Sprintf(" %d obj", len(m.s3ObjectsCache[bucketName]))
+				cacheKey := s3CacheKey(bucketName, m.currentPrefix)
+				objectCountLabel = fmt.Sprintf(" %d obj", len(m.s3ObjectsCache[cacheKey]))
 			}
 			leftBuilder.WriteString(m.renderLine(selectionS3Buckets, i, m.selectedBucketIndex, bucketName+objectCountLabel, leftWidth-4, m.s3Focus == focusBuckets) + "\n")
 		}
@@ -346,7 +623,8 @@ func (m Model) renderS3Panel() string {
 			leftBuilder.WriteString("\n")
 			leftBuilder.WriteString(m.renderSectionCaption("Selected Bucket") + "\n")
 			leftBuilder.WriteString(m.styles.InfoText.Render(truncateToWidth("  Name: "+selectedBucket.Name, leftWidth-4)) + "\n")
-			if cached, ok := m.s3ObjectsCache[selectedBucket.Name]; ok {
+			cacheKey := s3CacheKey(selectedBucket.Name, m.currentPrefix)
+			if cached, ok := m.s3ObjectsCache[cacheKey]; ok {
 				leftBuilder.WriteString(m.styles.InfoText.Render(truncateToWidth(fmt.Sprintf("  Cached objects: %d", len(cached)), leftWidth-4)) + "\n")
 			}
 		}
@@ -355,12 +633,22 @@ func (m Model) renderS3Panel() string {
 
 	var rightBuilder strings.Builder
 	rightBuilder.WriteString("\n")
+	if m.s3PanelState.filterActive && m.s3Focus == focusObjects {
+		rightBuilder.WriteString("  " + m.s3PanelState.filterInput.View() + "\n")
+		if m.s3PanelState.filterQuery != "" {
+			rightBuilder.WriteString("  " + m.styles.InfoText.Render(fmt.Sprintf("[%d] of [%d]", len(displayObjects), len(m.objects))) + "\n")
+		}
+		rightBuilder.WriteString("\n")
+	}
 	bucketName := "Select a Bucket"
 	if len(m.buckets) > 0 && m.selectedBucketIndex < len(m.buckets) {
 		bucketName = m.buckets[m.selectedBucketIndex].Name
 	}
 
-	if len(m.objects) == 0 {
+	breadcrumb := m.renderS3Breadcrumb(bucketName, m.currentPrefix, rightWidth-4)
+	rightBuilder.WriteString(breadcrumb + "\n\n")
+
+	if len(displayObjects) == 0 {
 		rightBuilder.WriteString(m.styles.InfoText.Render("  This bucket has no files/keys."))
 		rightBuilder.WriteString("\n")
 		rightBuilder.WriteString(m.styles.InfoText.Render("  Press [u] to upload a file into this bucket."))
@@ -369,22 +657,25 @@ func (m Model) renderS3Panel() string {
 		if keyWidth < 15 {
 			keyWidth = 15
 		}
-		header := fmt.Sprintf("  %-*s %-12s %-25s", keyWidth, "File Key", "Size", "Last Modified")
+		header := fmt.Sprintf("  %-*s %-12s %-25s", keyWidth, "File Key", "Size "+sortLabels[1], "Last Modified "+sortLabels[2])
 		rightBuilder.WriteString(m.styles.InfoText.Render(truncateToWidth(header, rightWidth-4)) + "\n")
 		rightBuilder.WriteString(m.styles.InfoText.Render(truncateToWidth(strings.Repeat("—", rightWidth-8), rightWidth-4)) + "\n")
 
-		maxVisibleObjs := innerHeight - 5
+		maxVisibleObjs := innerHeight - 7
+		if m.s3PanelState.filterActive {
+			maxVisibleObjs -= 3
+		}
 		if maxVisibleObjs < 1 {
 			maxVisibleObjs = 1
 		}
 
 		startO := 0
-		if m.selectedObjectIndex >= maxVisibleObjs {
-			startO = m.selectedObjectIndex - maxVisibleObjs + 1
+		if displayObjectIndex >= maxVisibleObjs {
+			startO = displayObjectIndex - maxVisibleObjs + 1
 		}
 		endO := startO + maxVisibleObjs
-		if endO > len(m.objects) {
-			endO = len(m.objects)
+		if endO > len(displayObjects) {
+			endO = len(displayObjects)
 			startO = endO - maxVisibleObjs
 			if startO < 0 {
 				startO = 0
@@ -392,22 +683,32 @@ func (m Model) renderS3Panel() string {
 		}
 
 		for i := startO; i < endO; i++ {
-			o := m.objects[i]
+			o := displayObjects[i]
 			sizeStr := humanBytes(o.Size)
 
-			keyStr := o.Key
-			if len(keyStr) > keyWidth {
-				keyStr = "…" + keyStr[len(keyStr)-(keyWidth-1):]
+			icon := "  "
+			if strings.HasSuffix(o.Key, "/") {
+				icon = "📁"
+			} else {
+				icon = "📄"
 			}
 			if isLikelyImageKey(o.Key) {
-				keyStr = "img " + keyStr
+				icon = "🖼"
 			}
 
-			row := fmt.Sprintf("%-*s %-12s %-25s", keyWidth, keyStr, sizeStr, o.LastModified)
-			rightBuilder.WriteString(m.renderLine(selectionS3Objects, i, m.selectedObjectIndex, row, rightWidth-4, m.s3Focus == focusObjects) + "\n")
+			keyStr := o.Key
+			if strings.HasSuffix(keyStr, "/") {
+				keyStr = strings.TrimSuffix(keyStr, "/")
+			}
+			if len(keyStr) > keyWidth-5 {
+				keyStr = "…" + keyStr[len(keyStr)-(keyWidth-6):]
+			}
+
+			row := fmt.Sprintf("%s %-*s %-12s %-25s", icon, keyWidth-5, keyStr, sizeStr, o.LastModified)
+			rightBuilder.WriteString(m.renderLine(selectionS3Objects, i, displayObjectIndex, row, rightWidth-4, m.s3Focus == focusObjects) + "\n")
 		}
 	}
-	if len(m.objects) > 0 && m.selectedObjectIndex < len(m.objects) {
+	if m.selectedObjectIndex < len(m.objects) {
 		selected := m.objects[m.selectedObjectIndex]
 		rightBuilder.WriteString("\n")
 		rightBuilder.WriteString(m.renderSectionCaption("Selected Object") + "\n")
@@ -455,18 +756,64 @@ func (m Model) renderS3PreviewModal() string {
 	builder.WriteString(m.styles.InfoText.Render("Bucket: "+m.selectedS3BucketName()) + "\n")
 	builder.WriteString(m.styles.InfoText.Render("Key: "+obj.Key) + "\n")
 	builder.WriteString(m.styles.InfoText.Render("Size: "+humanBytes(obj.Size)) + "\n")
-	builder.WriteString(m.styles.InfoText.Render("Last modified: "+obj.LastModified) + "\n\n")
+	builder.WriteString(m.styles.InfoText.Render("Last modified: "+obj.LastModified) + "\n")
+
+	typeLabel := fileTypeLabel(obj.Key)
+	if isLikelyImageKey(obj.Key) {
+		builder.WriteString(m.renderMetricPill("Type", typeLabel, lipgloss.Color(ui.ColorEmerald)) + "\n")
+	} else {
+		builder.WriteString(m.renderMetricPill("Type", typeLabel, lipgloss.Color(ui.ColorMono)) + "\n")
+	}
+	if obj.ContentType != "" {
+		builder.WriteString(m.renderMutedPill("Content-Type: "+obj.ContentType) + "\n")
+	}
+	builder.WriteString("\n")
 
 	if isLikelyImageKey(obj.Key) {
-		builder.WriteString(m.renderMetricPill("Type", "Image asset", lipgloss.Color(ui.ColorEmerald)) + "\n\n")
-		builder.WriteString(m.styles.InfoText.Render("Open in browser to preview the rendered image quickly.") + "\n")
+		builder.WriteString(m.styles.InfoText.Render("Image asset — open in browser to view, or download to save locally.") + "\n")
 	} else {
-		builder.WriteString(m.renderMutedPill("Binary or document object") + "\n\n")
-		builder.WriteString(m.styles.InfoText.Render("Use browser open for remote preview or download it locally.") + "\n")
+		builder.WriteString(m.styles.InfoText.Render("Use browser open for remote preview, or download it locally.") + "\n")
 	}
 
 	builder.WriteString("\n")
-	builder.WriteString(m.styles.InfoText.Render("[b] Open in browser  |  [w] Download  |  [Esc] Close"))
+	builder.WriteString(m.styles.InfoText.Render("[b] Open in browser  |  [w] Download  |  [V] Versions  |  [Esc] Close"))
+	return builder.String()
+}
+
+func (m Model) renderS3VersionsModal() string {
+	var builder strings.Builder
+	builder.WriteString(m.styles.Title.Render("Object Versions") + "\n\n")
+
+	if len(m.objectVersions) == 0 {
+		builder.WriteString(m.styles.InfoText.Render("No versions found for this object."))
+		return builder.String()
+	}
+
+	builder.WriteString(m.styles.InfoText.Render(fmt.Sprintf("Bucket: %s", m.selectedS3BucketName())) + "\n")
+	builder.WriteString(m.styles.InfoText.Render(fmt.Sprintf("Key:    %s", m.versionObjectKey)) + "\n\n")
+
+	header := fmt.Sprintf("  %-20s %-20s %-12s %-25s", "Version ID", "Status", "Size", "Last Modified")
+	builder.WriteString(m.styles.InfoText.Render(header) + "\n")
+	builder.WriteString(m.styles.InfoText.Render(strings.Repeat("—", 78)) + "\n")
+
+	for i, v := range m.objectVersions {
+		status := "  v" + fmt.Sprintf("%d", len(m.objectVersions)-i)
+		latestTag := ""
+		if v.IsLatest {
+			latestTag = " [LATEST]"
+		}
+
+		id := v.VersionID
+		if len(id) > 18 {
+			id = id[:18]
+		}
+
+		row := fmt.Sprintf("%-20s %-20s %-12s %-25s", id, status+latestTag, humanBytes(v.Size), v.LastModified)
+		builder.WriteString(m.renderLine(selectionNone, i, m.selectedVersionIndex, row, 78, true) + "\n")
+	}
+
+	builder.WriteString("\n")
+	builder.WriteString(m.styles.InfoText.Render("[j/k] Navigate  |  [d] Delete version  |  [V/Esc] Close"))
 	return builder.String()
 }
 
@@ -479,8 +826,40 @@ func (m Model) renderSQSPanel() string {
 	height := m.mainPanelHeight()
 	innerHeight := height - 2
 
+	sortQueues(m.queues, m.sqsPanelState.sortField, m.sqsPanelState.sortAscending)
+	sortArrow := " ↑"
+	if !m.sqsPanelState.sortAscending {
+		sortArrow = " ↓"
+	}
+	sortLabels := map[int]string{0: "name" + sortArrow, 1: "avail" + sortArrow, 2: "delay" + sortArrow, 3: "in-flight" + sortArrow}
+
+	var displayQueues []domain.SQSQueue
+	displayQueueIndex := m.selectedQueueIndex
+	if m.sqsPanelState.filterActive && m.sqsPanelState.filterQuery != "" {
+		displayQueues = filterQueues(m.queues, m.sqsPanelState.filterQuery)
+		displayQueueIndex = 0
+		if m.selectedQueueIndex < len(m.queues) {
+			selName := m.queues[m.selectedQueueIndex].Name
+			for i, q := range displayQueues {
+				if q.Name == selName {
+					displayQueueIndex = i
+					break
+				}
+			}
+		}
+	} else {
+		displayQueues = m.queues
+	}
+
 	var leftBuilder strings.Builder
 	leftBuilder.WriteString("\n")
+	if m.sqsPanelState.filterActive && m.sqsFocus == focusQueues {
+		leftBuilder.WriteString("  " + m.sqsPanelState.filterInput.View() + "\n")
+		if m.sqsPanelState.filterQuery != "" {
+			leftBuilder.WriteString("  " + m.styles.InfoText.Render(fmt.Sprintf("[%d] of [%d]", len(displayQueues), len(m.queues))) + "\n")
+		}
+		leftBuilder.WriteString("\n")
+	}
 	if len(m.queues) == 0 {
 		leftBuilder.WriteString(m.styles.InfoText.Render("  No SQS queues discovered."))
 	} else {
@@ -501,17 +880,23 @@ func (m Model) renderSQSPanel() string {
 		if totalDelayed > 0 {
 			leftBuilder.WriteString("  " + m.renderPillRows(leftWidth-4, m.renderMutedPill(fmt.Sprintf("Delayed %d", totalDelayed))) + "\n")
 		}
-		leftBuilder.WriteString("\n")
+		leftBuilder.WriteString("  " + m.styles.InfoText.Render("Sort: "+sortLabels[m.sqsPanelState.sortField]) + "\n\n")
 
 		maxVisibleQueues := innerHeight - 7
-		startQ, endQ := visibleRange(len(m.queues), m.selectedQueueIndex, maxVisibleQueues)
+		if m.sqsPanelState.filterActive {
+			maxVisibleQueues -= 3
+		}
+		if maxVisibleQueues < 1 {
+			maxVisibleQueues = 1
+		}
+		startQ, endQ := visibleRange(len(displayQueues), displayQueueIndex, maxVisibleQueues)
 		for i := startQ; i < endQ; i++ {
-			q := m.queues[i]
+			q := displayQueues[i]
 			line := fmt.Sprintf("%2d routes  %s", m.routeCountForQueue(q), q.Name)
 			if q.MessagesAvailable > 0 || q.MessagesNotVisible > 0 || q.MessagesDelayed > 0 {
 				line += fmt.Sprintf("  r:%d f:%d d:%d", q.MessagesAvailable, q.MessagesNotVisible, q.MessagesDelayed)
 			}
-			leftBuilder.WriteString(m.renderLine(selectionSQSQueues, i, m.selectedQueueIndex, line, leftWidth-4, m.sqsFocus == focusQueues) + "\n")
+			leftBuilder.WriteString(m.renderLine(selectionSQSQueues, i, displayQueueIndex, line, leftWidth-4, m.sqsFocus == focusQueues) + "\n")
 		}
 		if len(m.queues) > 0 && m.selectedQueueIndex < len(m.queues) {
 			selected := m.queues[m.selectedQueueIndex]
@@ -528,6 +913,13 @@ func (m Model) renderSQSPanel() string {
 
 	var rightBuilder strings.Builder
 	rightBuilder.WriteString("\n")
+	if m.sqsPanelState.filterActive && m.sqsFocus == focusQueueSubs {
+		rightBuilder.WriteString("  " + m.sqsPanelState.filterInput.View() + "\n")
+		if m.sqsPanelState.filterQuery != "" {
+			rightBuilder.WriteString("  " + m.styles.InfoText.Render(fmt.Sprintf("Filter: %q", m.sqsPanelState.filterQuery)) + "\n")
+		}
+		rightBuilder.WriteString("\n")
+	}
 	if len(m.queues) == 0 {
 		rightBuilder.WriteString(m.styles.InfoText.Render("  No queue selected"))
 	} else if m.selectedQueueIndex >= len(m.queues) {
@@ -546,6 +938,12 @@ func (m Model) renderSQSPanel() string {
 		} else {
 			rightBuilder.WriteString(m.renderSectionCaption("Incoming Topic Routes") + "\n")
 			maxVisibleSubs := innerHeight - 8
+			if m.sqsPanelState.filterActive {
+				maxVisibleSubs -= 3
+			}
+			if maxVisibleSubs < 1 {
+				maxVisibleSubs = 1
+			}
 			startS, endS := visibleRange(len(m.queueSubscriptions), m.selectedQueueSubIndex, maxVisibleSubs)
 			for i := startS; i < endS; i++ {
 				sub := m.queueSubscriptions[i]
@@ -584,21 +982,77 @@ func (m Model) renderSNSPanel() string {
 	height := m.mainPanelHeight()
 	innerHeight := height - 2
 
+	sortTopics(m.topics, m.snsPanelState.sortField, m.snsPanelState.sortAscending)
+	sortArrow := " ↑"
+	if !m.snsPanelState.sortAscending {
+		sortArrow = " ↓"
+	}
+
+	var displayTopics []domain.SNSTopic
+	displayTopicIndex := m.selectedTopicIndex
+	if m.snsPanelState.filterActive && m.snsPanelState.filterQuery != "" {
+		displayTopics = filterTopics(m.topics, m.snsPanelState.filterQuery)
+		displayTopicIndex = 0
+		if m.selectedTopicIndex < len(m.topics) {
+			selName := m.topics[m.selectedTopicIndex].Name
+			for i, t := range displayTopics {
+				if t.Name == selName {
+					displayTopicIndex = i
+					break
+				}
+			}
+		}
+	} else {
+		displayTopics = m.topics
+	}
+
+	var displaySubs []domain.SNSSubscription
+	displaySubIndex := m.selectedSubIndex
+	if m.snsPanelState.filterActive && m.snsPanelState.filterQuery != "" {
+		displaySubs = filterSubscriptions(m.subscriptions, m.snsPanelState.filterQuery)
+		displaySubIndex = 0
+		if m.selectedSubIndex < len(m.subscriptions) {
+			selARN := m.subscriptions[m.selectedSubIndex].ARN
+			for i, s := range displaySubs {
+				if s.ARN == selARN {
+					displaySubIndex = i
+					break
+				}
+			}
+		}
+	} else {
+		displaySubs = m.subscriptions
+	}
+
 	var leftBuilder strings.Builder
 	leftBuilder.WriteString("\n")
+	if m.snsPanelState.filterActive && m.snsSubFocus == focusTopics {
+		leftBuilder.WriteString("  " + m.snsPanelState.filterInput.View() + "\n")
+		if m.snsPanelState.filterQuery != "" {
+			leftBuilder.WriteString("  " + m.styles.InfoText.Render(fmt.Sprintf("[%d] of [%d]", len(displayTopics), len(m.topics))) + "\n")
+		}
+		leftBuilder.WriteString("\n")
+	}
 	if len(m.topics) == 0 {
 		leftBuilder.WriteString(m.styles.InfoText.Render("  No SNS topics found"))
 	} else {
 		leftBuilder.WriteString("  " + m.renderPillRows(leftWidth-4,
 			m.renderMetricPill("Topics", fmt.Sprintf("%d", len(m.topics)), lipgloss.Color(ui.ColorMono)),
 			m.renderMetricPill("Routes", fmt.Sprintf("%d", len(m.allSubscriptions)), lipgloss.Color(ui.ColorStack)),
-		) + "\n\n")
+		) + "\n")
+		leftBuilder.WriteString("  " + m.styles.InfoText.Render("Sort: name "+sortArrow) + "\n\n")
 		maxVisibleTopics := innerHeight - 7
-		startT, endT := visibleRange(len(m.topics), m.selectedTopicIndex, maxVisibleTopics)
+		if m.snsPanelState.filterActive {
+			maxVisibleTopics -= 3
+		}
+		if maxVisibleTopics < 1 {
+			maxVisibleTopics = 1
+		}
+		startT, endT := visibleRange(len(displayTopics), displayTopicIndex, maxVisibleTopics)
 		for i := startT; i < endT; i++ {
-			topic := m.topics[i]
+			topic := displayTopics[i]
 			line := fmt.Sprintf("%2d routes  %s", m.routeCountForTopic(topic.ARN), topic.Name)
-			leftBuilder.WriteString(m.renderLine(selectionSNSTopics, i, m.selectedTopicIndex, line, leftWidth-4, m.snsSubFocus == focusTopics) + "\n")
+			leftBuilder.WriteString(m.renderLine(selectionSNSTopics, i, displayTopicIndex, line, leftWidth-4, m.snsSubFocus == focusTopics) + "\n")
 		}
 		if len(m.topics) > 0 && m.selectedTopicIndex < len(m.topics) {
 			selected := m.topics[m.selectedTopicIndex]
@@ -611,6 +1065,13 @@ func (m Model) renderSNSPanel() string {
 
 	var rightBuilder strings.Builder
 	rightBuilder.WriteString("\n")
+	if m.snsPanelState.filterActive && m.snsSubFocus == focusSubs {
+		rightBuilder.WriteString("  " + m.snsPanelState.filterInput.View() + "\n")
+		if m.snsPanelState.filterQuery != "" {
+			rightBuilder.WriteString("  " + m.styles.InfoText.Render(fmt.Sprintf("[%d] of [%d]", len(displaySubs), len(m.subscriptions))) + "\n")
+		}
+		rightBuilder.WriteString("\n")
+	}
 	if len(m.topics) == 0 {
 		rightBuilder.WriteString(m.styles.InfoText.Render("  No topic selected"))
 	} else if m.selectedTopicIndex >= len(m.topics) {
@@ -624,15 +1085,21 @@ func (m Model) renderSNSPanel() string {
 		) + "\n")
 		rightBuilder.WriteString(m.renderDetailLine("ARN", topicARN, rightWidth-4) + "\n\n")
 
-		if len(m.subscriptions) == 0 {
+		if len(displaySubs) == 0 {
 			rightBuilder.WriteString(m.styles.InfoText.Render("  No active subscriptions") + "\n")
 			rightBuilder.WriteString(m.styles.InfoText.Render("  Press [c] to create one"))
 		} else {
 			rightBuilder.WriteString(m.renderSectionCaption("Routing Links") + "\n")
 			maxVisibleSubs := innerHeight - 9
-			startS, endS := visibleRange(len(m.subscriptions), m.selectedSubIndex, maxVisibleSubs)
+			if m.snsPanelState.filterActive {
+				maxVisibleSubs -= 3
+			}
+			if maxVisibleSubs < 1 {
+				maxVisibleSubs = 1
+			}
+			startS, endS := visibleRange(len(displaySubs), displaySubIndex, maxVisibleSubs)
 			for i := startS; i < endS; i++ {
-				sub := m.subscriptions[i]
+				sub := displaySubs[i]
 				direction := "OUT"
 				if i >= m.snsOutgoingCount {
 					direction = "IN "
@@ -645,7 +1112,7 @@ func (m Model) renderSNSPanel() string {
 					}
 					line += " " + scopeTag
 				}
-				rightBuilder.WriteString(m.renderLine(selectionSNSSubs, i, m.selectedSubIndex, line, rightWidth-4, m.snsSubFocus == focusSubs) + "\n")
+				rightBuilder.WriteString(m.renderLine(selectionSNSSubs, i, displaySubIndex, line, rightWidth-4, m.snsSubFocus == focusSubs) + "\n")
 			}
 			if m.selectedSubIndex < len(m.subscriptions) {
 				sub := m.subscriptions[m.selectedSubIndex]
@@ -669,17 +1136,6 @@ func (m Model) renderSNSPanel() string {
 	rightPanel := m.renderTitledPanel(rightWidth, height, "Subscriptions", rightBuilder.String(), m.snsSubFocus == focusSubs, lipgloss.Color(ui.ColorStack))
 
 	return lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, rightPanel)
-}
-
-func maskSecretValue(value string) string {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return "(empty)"
-	}
-	if len(value) <= 8 {
-		return strings.Repeat("•", len(value))
-	}
-	return value[:2] + strings.Repeat("•", len(value)-6) + value[len(value)-2:]
 }
 
 func formatSecretValueDisplay(value string) string {
@@ -725,27 +1181,73 @@ func (m Model) renderSecretsPanel() string {
 	height := m.mainPanelHeight()
 	innerHeight := height - 2
 
+	sortSecrets(m.secrets, m.secretsPanelState.sortField, m.secretsPanelState.sortAscending)
+	sortArrow := " ↑"
+	if !m.secretsPanelState.sortAscending {
+		sortArrow = " ↓"
+	}
+	sortLabels := map[int]string{0: "name" + sortArrow, 1: "date" + sortArrow}
+
+	var displaySecrets []domain.Secret
+	displaySecretIndex := m.selectedSecretIndex
+	if m.secretsPanelState.filterActive && m.secretsPanelState.filterQuery != "" {
+		displaySecrets = filterSecrets(m.secrets, m.secretsPanelState.filterQuery)
+		displaySecretIndex = 0
+		if m.selectedSecretIndex < len(m.secrets) {
+			selName := m.secrets[m.selectedSecretIndex].Name
+			for i, s := range displaySecrets {
+				if s.Name == selName {
+					displaySecretIndex = i
+					break
+				}
+			}
+		}
+	} else {
+		displaySecrets = m.secrets
+	}
+
 	var leftBuilder strings.Builder
 	leftBuilder.WriteString("\n")
+	if m.secretsPanelState.filterActive && m.secretsFocus == focusSecrets {
+		leftBuilder.WriteString("  " + m.secretsPanelState.filterInput.View() + "\n")
+		if m.secretsPanelState.filterQuery != "" {
+			leftBuilder.WriteString("  " + m.styles.InfoText.Render(fmt.Sprintf("[%d] of [%d]", len(displaySecrets), len(m.secrets))) + "\n")
+		}
+		leftBuilder.WriteString("\n")
+	}
 	if len(m.secrets) == 0 {
 		leftBuilder.WriteString(m.styles.InfoText.Render("  No secrets found"))
 	} else {
 		leftBuilder.WriteString("  " + m.renderPillRows(leftWidth-4,
 			m.renderMetricPill("Secrets", fmt.Sprintf("%d", len(m.secrets)), lipgloss.Color(ui.ColorMono)),
 			m.renderMetricPill("Versions", fmt.Sprintf("%d", len(m.secretVersions)), lipgloss.Color(ui.ColorStack)),
-		) + "\n\n")
+		) + "\n")
+		leftBuilder.WriteString("  " + m.styles.InfoText.Render("Sort: "+sortLabels[m.secretsPanelState.sortField]) + "\n\n")
 
 		maxVisible := innerHeight - 7
-		start, end := visibleRange(len(m.secrets), m.selectedSecretIndex, maxVisible)
+		if m.secretsPanelState.filterActive {
+			maxVisible -= 3
+		}
+		if maxVisible < 1 {
+			maxVisible = 1
+		}
+		start, end := visibleRange(len(displaySecrets), displaySecretIndex, maxVisible)
 		for i := start; i < end; i++ {
-			secret := m.secrets[i]
-			leftBuilder.WriteString(m.renderLine(selectionSecrets, i, m.selectedSecretIndex, secret.Name, leftWidth-4, m.secretsFocus == focusSecrets) + "\n")
+			secret := displaySecrets[i]
+			leftBuilder.WriteString(m.renderLine(selectionSecrets, i, displaySecretIndex, secret.Name, leftWidth-4, m.secretsFocus == focusSecrets) + "\n")
 		}
 	}
 	leftPanel := m.renderTitledPanel(leftWidth, height, "Secrets Manager", leftBuilder.String(), m.secretsFocus == focusSecrets, lipgloss.Color(ui.ColorMono))
 
 	var rightBuilder strings.Builder
 	rightBuilder.WriteString("\n")
+	if m.secretsPanelState.filterActive && m.secretsFocus == focusSecretVersions {
+		rightBuilder.WriteString("  " + m.secretsPanelState.filterInput.View() + "\n")
+		if m.secretsPanelState.filterQuery != "" {
+			rightBuilder.WriteString("  " + m.styles.InfoText.Render(fmt.Sprintf("Filter: %q", m.secretsPanelState.filterQuery)) + "\n")
+		}
+		rightBuilder.WriteString("\n")
+	}
 	if len(m.secrets) == 0 {
 		rightBuilder.WriteString(m.styles.InfoText.Render("  No secret selected"))
 	} else if m.selectedSecretIndex >= len(m.secrets) {
@@ -767,6 +1269,12 @@ func (m Model) renderSecretsPanel() string {
 		} else {
 			rightBuilder.WriteString(m.renderSectionCaption("Versions") + "\n")
 			maxVisible := innerHeight - 11
+			if m.secretsPanelState.filterActive {
+				maxVisible -= 3
+			}
+			if maxVisible < 1 {
+				maxVisible = 1
+			}
 			start, end := visibleRange(len(m.secretVersions), m.selectedSecretVersionIndex, maxVisible)
 			for i := start; i < end; i++ {
 				version := m.secretVersions[i]
@@ -1155,6 +1663,27 @@ func (m Model) renderImportProfileModal() string {
 	return builder.String()
 }
 
+func (m Model) renderSingleExportModal() string {
+	var builder strings.Builder
+	resourceLabel := "resource"
+	switch m.activeTab {
+	case panelS3:
+		resourceLabel = "selected bucket"
+	case panelSQS:
+		resourceLabel = "selected queue"
+	case panelSNS:
+		resourceLabel = "selected topic"
+	case panelSecrets:
+		resourceLabel = "selected secret"
+	}
+	builder.WriteString(m.styles.Title.Render("Export " + resourceLabel) + "\n\n")
+	builder.WriteString(m.styles.InfoText.Render("Export only the "+resourceLabel+" and its dependencies as YAML.") + "\n")
+	builder.WriteString(m.styles.InfoText.Render("Enter destination folder or file:") + "\n")
+	builder.WriteString(m.singleExportPathInput.View() + "\n\n")
+	builder.WriteString(m.styles.InfoText.Render("Press [Enter] to Export | [Esc] to Cancel"))
+	return builder.String()
+}
+
 func (m Model) renderConfigPanel() string {
 	var builder strings.Builder
 	width := m.width - 4
@@ -1280,12 +1809,18 @@ func (m Model) renderPeekModal() string {
 		builder.WriteString(m.styles.InfoText.Render("No messages visible in the queue.") + "\n")
 	} else {
 		for i, msg := range m.peekMessages {
-			builder.WriteString(m.styles.Highlight.Render(fmt.Sprintf("[%d] ID: %s", i+1, msg.ID)) + "\n")
-			builder.WriteString(m.styles.ListItem.Render(msg.Body) + "\n\n")
+			idLine := fmt.Sprintf("[%d] ID: %s", i+1, msg.ID)
+			if i == m.selectedPeekIndex {
+				builder.WriteString(m.styles.SelectedListItem.Render(idLine) + "\n")
+				builder.WriteString(m.styles.SelectedListItem.Render(msg.Body) + "\n\n")
+			} else {
+				builder.WriteString(m.styles.Highlight.Render(idLine) + "\n")
+				builder.WriteString(m.styles.ListItem.Render(msg.Body) + "\n\n")
+			}
 		}
 	}
 
-	builder.WriteString(m.styles.InfoText.Render("Press [Esc / Enter] to Close"))
+	builder.WriteString(m.styles.InfoText.Render("jk: navigate  x: delete selected  X: delete all  Esc/Enter: close"))
 	return builder.String()
 }
 
@@ -1319,6 +1854,7 @@ func (m Model) renderHelpModal() string {
 		{
 			title: "GENERAL",
 			entries: []helpEntry{
+				{key: "p", action: "Profile switcher"},
 				{key: "? | ctrl+p", action: "Toggle help"},
 				{key: "o", action: "Command logs"},
 				{key: "space", action: "Start or extend selection"},
@@ -1333,14 +1869,17 @@ func (m Model) renderHelpModal() string {
 		sections = append(sections, helpSection{
 			title: "AWS S3",
 			entries: []helpEntry{
+				{key: "jk | arrows", action: "Navigate"},
 				{key: "enter | →", action: "Select bucket"},
 				{key: "esc | ←", action: "Back to buckets"},
 				{key: "c", action: "Create bucket"},
 				{key: "f", action: "Create folder"},
 				{key: "u", action: "Upload object"},
 				{key: "v", action: "Preview object"},
+				{key: "b", action: "Open in browser"},
 				{key: "w", action: "Download object"},
 				{key: "d", action: "Delete object"},
+				{key: "V", action: "Object versions"},
 			},
 		})
 	}
@@ -1349,14 +1888,18 @@ func (m Model) renderHelpModal() string {
 		sections = append(sections, helpSection{
 			title: "AWS SQS",
 			entries: []helpEntry{
+				{key: "jk | arrows", action: "Navigate"},
 				{key: "enter", action: "Inspect queue"},
 				{key: "l | →", action: "Open routes"},
+				{key: "esc", action: "Back to queues"},
 				{key: "v", action: "Peek messages"},
 				{key: "s", action: "Send message"},
-				{key: "p", action: "Purge queue"},
-				{key: "P", action: "Purge all loaded queues"},
+				{key: "m", action: "Purge queue"},
+				{key: "M", action: "Purge all loaded queues"},
 				{key: "b", action: "Subscribe topics"},
+				{key: "c", action: "Create queue"},
 				{key: "d", action: "Delete queue"},
+				{key: "d/x", action: "Unsubscribe route"},
 			},
 		})
 	}
@@ -1365,8 +1908,10 @@ func (m Model) renderHelpModal() string {
 		sections = append(sections, helpSection{
 			title: "AWS SNS",
 			entries: []helpEntry{
+				{key: "jk | arrows", action: "Navigate"},
 				{key: "enter", action: "Inspect topic"},
 				{key: "l | →", action: "Open subscriptions"},
+				{key: "esc", action: "Back to topics"},
 				{key: "c", action: "Create topic"},
 				{key: "b", action: "Batch subscribe"},
 				{key: "i", action: "Import YAML"},
@@ -1381,8 +1926,10 @@ func (m Model) renderHelpModal() string {
 		sections = append(sections, helpSection{
 			title: "SECRETS",
 			entries: []helpEntry{
+				{key: "jk | arrows", action: "Navigate"},
 				{key: "enter", action: "Inspect secret"},
 				{key: "l | h", action: "Switch list or versions"},
+				{key: "esc", action: "Back"},
 				{key: "r", action: "Promote version"},
 				{key: "c", action: "Create secret"},
 				{key: "u", action: "Update secret"},
@@ -1396,9 +1943,13 @@ func (m Model) renderHelpModal() string {
 	sections = append(sections, helpSection{
 		title: "SETTINGS",
 		entries: []helpEntry{
+			{key: "jk | arrows", action: "Navigate"},
 			{key: "enter", action: "Edit field"},
 			{key: "tab | s-tab", action: "Cycle inputs"},
 			{key: "esc", action: "Stop editing"},
+			{key: "s", action: "Save settings"},
+			{key: "E", action: "Export snapshot"},
+			{key: "L", action: "Load snapshot"},
 		},
 	})
 
@@ -1553,4 +2104,71 @@ func clampModalSize(termWidth, termHeight, widthOffset, minWidth, heightOffset, 
 		h = termHeight
 	}
 	return w, h
+}
+
+func (m Model) renderProfileModal() string {
+	var builder strings.Builder
+	builder.WriteString(m.styles.Title.Render("Profile Switcher") + "\n\n")
+
+	activeName := ""
+	if m.config != nil {
+		activeName = m.config.ActiveProfile
+	}
+
+	if len(m.profileList) == 0 {
+		builder.WriteString(m.styles.InfoText.Render("  No profiles configured.") + "\n\n")
+		builder.WriteString(m.styles.InfoText.Render("  Type a name below and press [c] to create from current settings.") + "\n")
+	} else {
+		builder.WriteString(m.styles.InfoText.Render("  Active: ") +
+			lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorStack)).Bold(true).Render(activeName) + "\n\n")
+
+		maxVisible := len(m.profileList)
+		if maxVisible > 10 {
+			maxVisible = 10
+		}
+		start := 0
+		if m.profileCursor >= maxVisible {
+			start = m.profileCursor - maxVisible + 1
+		}
+		end := start + maxVisible
+		if end > len(m.profileList) {
+			end = len(m.profileList)
+			start = end - maxVisible
+			if start < 0 {
+				start = 0
+			}
+		}
+		for i := start; i < end; i++ {
+			name := m.profileList[i]
+			marker := "  "
+			if name == activeName {
+				marker = "* "
+			}
+			if i == m.profileCursor {
+				builder.WriteString(m.styles.SelectedListItem.Render("> "+marker+name) + "\n")
+			} else {
+				builder.WriteString(m.styles.ListItem.Render("  "+marker+name) + "\n")
+			}
+		}
+		builder.WriteString("\n")
+		if m.profileCreateInput.Focused() {
+			builder.WriteString(m.styles.InfoText.Render("  [Enter] Create  |  [Esc] Cancel") + "\n")
+		} else {
+			builder.WriteString(m.styles.InfoText.Render("  [Enter] Switch  |  [c] Name  |  [d/del] Delete  |  [Esc] Close") + "\n")
+		}
+	}
+
+	builder.WriteString("\n")
+	builder.WriteString(m.styles.InfoText.Render("New profile name:") + "\n")
+	builder.WriteString(m.profileCreateInput.View())
+
+	return builder.String()
+}
+
+func (m Model) renderProfileDeleteConfirmModal() string {
+	var builder strings.Builder
+	builder.WriteString(m.styles.Title.Render("Confirm Delete Profile") + "\n\n")
+	builder.WriteString(m.styles.InfoText.Render(fmt.Sprintf("Delete profile %q?", m.profileDeleteName)) + "\n\n")
+	builder.WriteString(m.styles.InfoText.Render("Press [Y] to Confirm | Any other key to Cancel"))
+	return builder.String()
 }

@@ -64,9 +64,15 @@ type Model struct {
 	configUseCase   *usecase.ConfigUseCase
 	snapshotUseCase *usecase.SnapshotUseCase
 	config          *domain.AWSConfig
+	program         *tea.Program
+	logCh           chan string
+
+	s3PanelState
+	sqsPanelState
+	snsPanelState
+	secretsPanelState
 
 	activeTab   activePanel
-	s3Focus     focusArea
 	width       int
 	height      int
 	loading     bool
@@ -74,152 +80,17 @@ type Model struct {
 	errorMsg    string
 	statusMsgID int
 
-	buckets             []domain.S3Bucket
-	selectedBucketIndex int
-	objects             []domain.S3Object
-	selectedObjectIndex int
-	s3ObjectsCache      map[string][]domain.S3Object
-	s3ObjectsLoadedFor  string
-
-	showS3ConfirmDelete bool
-	s3DeleteBucket      string
-	s3DeleteKey         string
-	s3DeleteIsBucket    bool
-
-	showS3CreateModal bool
-	s3CreateInput     textinput.Model
-
-	showS3CreateFolderModal bool
-	s3FolderInput           textinput.Model
-
-	showS3UploadModal bool
-	s3UploadPathInput textinput.Model
-	s3UploadKeyInput  textinput.Model
-	s3UploadFocus     int
-
-	showS3PreviewModal bool
-
-	queues              []domain.SQSQueue
-	selectedQueueIndex  int
-	peekMessages        []domain.SQSMessage
-	showPeekModal       bool
-	showSqsSendModal    bool
-	sqsSendMessageInput textinput.Model
-
-	showSqsConfirmDelete bool
-	sqsDeleteQueueURL    string
-	sqsDeleteQueueName   string
-
-	showSqsPurgeAllConfirm bool
-
-	showSqsCreateModal bool
-	sqsCreateInput     textinput.Model
-
-	queueSubscriptions    []domain.SNSSubscription
-	selectedQueueSubIndex int
-	sqsFocus              focusArea
-
-	showSqsSubDeleteConfirm bool
-	sqsDeleteSubARN         string
-	sqsDeleteSubLabel       string
-
-	topics               []domain.SNSTopic
-	selectedTopicIndex   int
-	showSnsPublishModal  bool
-	snsPublishInput      textinput.Model
-	snsPublishAttrsInput textinput.Model
-
-	subscriptions    []domain.SNSSubscription
-	allSubscriptions []domain.SNSSubscription
-	selectedSubIndex int
-	managedSubs      []domain.ManagedSubscription
-	snsSubFocus      focusArea
-	snsOutgoingCount int
-	secretsFocus     focusArea
-
-	secrets                    []domain.Secret
-	selectedSecretIndex        int
-	secretVersions             []domain.SecretVersion
-	selectedSecretVersionIndex int
-	secretValue                domain.SecretValue
-	secretValueDisplay         string
-	secretValueLoadedFor       string
-	secretDetailsLoadedFor     string
-	secretValueViewport        viewport.Model
-	showSecretCreateModal      bool
-	showSecretUpdateModal      bool
-	showSecretDeleteConfirm    bool
-	showSecretRestoreConfirm   bool
-	showSecretPromoteConfirm       bool
-	showSecretClipboardConfirm     bool
-	secretClipboardText            string
-	showSecretValueModal       bool
-	secretCreateStep           int
-	secretUpdateStep           int
-	secretCreateNameInput      textinput.Model
-	secretCreateValueInput     textarea.Model
-	secretUpdateValueInput     textarea.Model
-	secretDeleteID             string
-	secretDeleteName           string
-	secretPromoteSecretID      string
-	secretPromoteVersionID     string
-	secretPromoteVersionLabel  string
-	secretPromoteCurrentID     string
-	secretPromoteCurrentLabel  string
-
-	showSnsCreateTopicModal bool
-	snsCreateTopicInput     textinput.Model
-
-	showSnsSimpleSubModal  bool
-	snsSimpleSubStep       int
-	snsSimpleSubCursor     int
-	snsSimpleSubSources    []domain.SNSTopic
-	snsSimpleSubEventInput textinput.Model
-
-	showSnsBatchSubModal bool
-	snsBatchSubCursor    int
-	snsBatchSubList      []toggleOption
-
-	showSnsYamlImportModal  bool
-	showSnsYamlApplyConfirm bool
-	snsYamlImportTextarea   textarea.Model
-	snsYamlSavedContent     map[string]string
-	snsYamlCurrentTopicARN  string
-	snsYamlPendingContent   string
-
-	showSqsBatchSubModal bool
-	sqsBatchSubCursor    int
-	sqsBatchSubList      []toggleOption
-
-	showSnsSubEditModal bool
-	snsSubEditInput     textinput.Model
-
-	showSnsConfirmDelete bool
-	snsDeleteARN         string
-	snsDeleteLabel       string
-	snsDeleteIsTopic     bool
-
-	showExportModal bool
-	showImportModal bool
-	exportPathInput textinput.Model
-	importPathInput textinput.Model
-
-	settingsInputs   []textinput.Model
-	focusedInput     int
-	settingsEditMode bool
-
-	leftPanelRatio      float64
-	showHelpModal       bool
-	showLogsModal       bool
+	leftPanelRatio float64
+	showHelpModal  bool
+	showLogsModal  bool
 	showInspectionModal bool
+	showSplash     bool
+	splashFrame    int
 
-	showSplash  bool
-	splashFrame int
-
-	commandLogs        []CommandLogEntry
-	commandLogCursor   int
-	logViewport        viewport.Model
-	helpViewport       viewport.Model
+	commandLogs      []CommandLogEntry
+	commandLogCursor int
+	logViewport      viewport.Model
+	helpViewport     viewport.Model
 	inspectionTitle    string
 	inspectionSubtitle string
 	inspectionContent  string
@@ -228,6 +99,27 @@ type Model struct {
 	selectionContext   selectionContext
 	selectionStart     int
 	selectionEnd       int
+
+	showExportModal       bool
+	showImportModal       bool
+	exportPathInput       textinput.Model
+	importPathInput       textinput.Model
+	showSingleExportModal bool
+	singleExportPathInput textinput.Model
+	showProgress          bool
+	progress              progressBar
+	progressTracker       *progressTracker
+
+	settingsInputs   []textinput.Model
+	focusedInput     int
+	settingsEditMode bool
+
+	showProfileModal    bool
+	profileList         []string
+	profileCursor       int
+	profileCreateInput  textinput.Model
+	showProfileDeleteConfirm bool
+	profileDeleteName   string
 
 	styles styles
 }
@@ -247,8 +139,51 @@ func (m *Model) cancelSpecialModes() {
 	m.showPeekModal = false
 	m.showExportModal = false
 	m.showImportModal = false
+	m.showSingleExportModal = false
 	m.showSecretClipboardConfirm = false
+	m.showProfileModal = false
+	m.showProfileDeleteConfirm = false
 	m.clearSelection()
+}
+
+func (m Model) anyModalOpen() bool {
+	return m.showS3ConfirmDelete ||
+		m.showS3CreateModal ||
+		m.showS3CreateFolderModal ||
+		m.showS3UploadModal ||
+		m.showS3PreviewModal ||
+		m.showVersionsModal ||
+		m.showSqsConfirmDelete ||
+		m.showSqsPurgeAllConfirm ||
+		m.showSqsCreateModal ||
+		m.showSqsSendModal ||
+		m.showSqsBatchSubModal ||
+		m.showSqsSubDeleteConfirm ||
+		m.showPeekModal ||
+		m.showSnsPublishModal ||
+		m.showSnsCreateTopicModal ||
+		m.showSnsSimpleSubModal ||
+		m.showSnsBatchSubModal ||
+		m.showSnsYamlImportModal ||
+		m.showSnsYamlApplyConfirm ||
+		m.showSnsConfirmDelete ||
+		m.showSnsSubEditModal ||
+		m.showSecretCreateModal ||
+		m.showSecretUpdateModal ||
+		m.showSecretDeleteConfirm ||
+		m.showSecretRestoreConfirm ||
+		m.showSecretPromoteConfirm ||
+		m.showSecretClipboardConfirm ||
+		m.showSecretValueModal ||
+		m.showExportModal ||
+		m.showImportModal ||
+		m.showSingleExportModal ||
+		m.showHelpModal ||
+		m.showLogsModal ||
+		m.showInspectionModal ||
+		m.showProfileModal ||
+		m.showProfileDeleteConfirm ||
+		m.settingsEditMode
 }
 
 type styles struct {
@@ -267,14 +202,16 @@ type styles struct {
 	InputFocused     lipgloss.Style
 	InputUnfocused   lipgloss.Style
 	Modal            lipgloss.Style
-	SuccessBadge     lipgloss.Style
-	ErrorBadge       lipgloss.Style
-	InfoText         lipgloss.Style
+		SuccessBadge     lipgloss.Style
+		WarningBadge     lipgloss.Style
+		ErrorBadge       lipgloss.Style
+		InfoText         lipgloss.Style
 }
 
 var Version = "0.0.4"
 
 const splashFrameLimit = 20
+const autoRefreshInterval = 5 * time.Second
 
 func NewModel(awsUseCase *usecase.AWSUseCase, configUseCase *usecase.ConfigUseCase, snapshotUseCase *usecase.SnapshotUseCase) Model {
 
@@ -358,6 +295,12 @@ func NewModel(awsUseCase *usecase.AWSUseCase, configUseCase *usecase.ConfigUseCa
 
 		SuccessBadge: lipgloss.NewStyle().
 			Background(lipgloss.Color(ui.ColorSuccess)).
+			Foreground(lipgloss.Color(ui.ColorBg)).
+			Bold(true).
+			Padding(0, 1),
+
+		WarningBadge: lipgloss.NewStyle().
+			Background(lipgloss.Color(ui.ColorWarning)).
 			Foreground(lipgloss.Color(ui.ColorBg)).
 			Bold(true).
 			Padding(0, 1),
@@ -447,6 +390,22 @@ func NewModel(awsUseCase *usecase.AWSUseCase, configUseCase *usecase.ConfigUseCa
 	yamlTA.FocusedStyle.CursorLine = lipgloss.NewStyle()
 	yamlTA.FocusedStyle.Base = lipgloss.NewStyle()
 
+	s3FilterInput := textinput.New()
+	s3FilterInput.Placeholder = "Filter..."
+	s3FilterInput.Width = 30
+
+	sqsFilterInput := textinput.New()
+	sqsFilterInput.Placeholder = "Filter..."
+	sqsFilterInput.Width = 30
+
+	snsFilterInput := textinput.New()
+	snsFilterInput.Placeholder = "Filter..."
+	snsFilterInput.Width = 30
+
+	secretsFilterInput := textinput.New()
+	secretsFilterInput.Placeholder = "Filter..."
+	secretsFilterInput.Width = 30
+
 	exportInput := textinput.New()
 	exportInput.Placeholder = usecase.DefaultSnapshotPath()
 	exportInput.Width = 50
@@ -455,54 +414,84 @@ func NewModel(awsUseCase *usecase.AWSUseCase, configUseCase *usecase.ConfigUseCa
 	importInput.Placeholder = usecase.DefaultSnapshotPath()
 	importInput.Width = 50
 
+	singleExportInput := textinput.New()
+	singleExportInput.Placeholder = usecase.DefaultSnapshotPath()
+	singleExportInput.Width = 50
+
 	settingsInputs := make([]textinput.Model, 8)
 	for i := range settingsInputs {
 		settingsInputs[i] = textinput.New()
 		settingsInputs[i].Width = 40
 	}
 
+	profileCreateInput := textinput.New()
+	profileCreateInput.Placeholder = "profile-name"
+	profileCreateInput.Width = 40
+
 	return Model{
 		awsUseCase:              awsUseCase,
 		configUseCase:           configUseCase,
 		snapshotUseCase:         snapshotUseCase,
+		logCh:                   make(chan string, 256),
 		activeTab:               panelS3,
-		s3Focus:                 focusBuckets,
-		styles:                  s,
-		s3ObjectsCache:          make(map[string][]domain.S3Object),
-		sqsSendMessageInput:     sqsInput,
-		snsPublishInput:         snsInput,
-		snsPublishAttrsInput:    snsAttrsInput,
-		snsCreateTopicInput:     createTopicInput,
-		s3CreateInput:           s3CInput,
-		s3UploadPathInput:       s3UploadPath,
-		s3UploadKeyInput:        s3UploadKey,
-		s3FolderInput:           s3FolderInput,
-		sqsCreateInput:          sqsCInput,
-		snsSimpleSubEventInput:  subEventInput,
-		snsSubEditInput:         subEditInput,
-		snsYamlImportTextarea:   yamlTA,
-		snsYamlSavedContent:     make(map[string]string),
-		secretCreateNameInput:   secretNameInput,
-		secretCreateValueInput:  secretValueTA,
-		secretUpdateValueInput:  secretUpdateValueTA,
-		exportPathInput:         exportInput,
-		importPathInput:         importInput,
-		settingsInputs:          settingsInputs,
-		snsSubFocus:             focusTopics,
-		sqsFocus:                focusQueues,
-		secretsFocus:            focusSecrets,
-		loading:                 true,
-		leftPanelRatio:          0.5,
-		showHelpModal:           false,
-		showLogsModal:           false,
-		showInspectionModal:     false,
-		showSnsYamlApplyConfirm: false,
-		secretValueDisplay:      "",
-		showSplash:              true,
-		logViewport:             viewport.New(0, 0),
-		inspectionViewport:      viewport.New(0, 0),
-		secretValueViewport:     viewport.New(0, 0),
+		s3PanelState: s3PanelState{
+			s3Focus:       focusBuckets,
+			s3ObjectsCache: make(map[string][]domain.S3Object),
+			s3CreateInput:  s3CInput,
+			s3UploadPathInput: s3UploadPath,
+			s3UploadKeyInput:  s3UploadKey,
+			s3FolderInput:     s3FolderInput,
+			filterInput:  s3FilterInput,
+		},
+		sqsPanelState: sqsPanelState{
+			sqsSendMessageInput: sqsInput,
+			sqsCreateInput:      sqsCInput,
+			sqsFocus:            focusQueues,
+			filterInput:  sqsFilterInput,
+		},
+		snsPanelState: snsPanelState{
+			snsPublishInput:      snsInput,
+			snsPublishAttrsInput: snsAttrsInput,
+			snsCreateTopicInput:  createTopicInput,
+			snsSimpleSubEventInput: subEventInput,
+			snsSubEditInput:      subEditInput,
+			snsYamlImportTextarea: yamlTA,
+			snsYamlSavedContent:  make(map[string]string),
+			snsSubFocus:          focusTopics,
+			showSnsYamlApplyConfirm: false,
+			filterInput:  snsFilterInput,
+		},
+		secretsPanelState: secretsPanelState{
+			secretsFocus:          focusSecrets,
+			secretCreateNameInput:  secretNameInput,
+			secretCreateValueInput: secretValueTA,
+			secretUpdateValueInput: secretUpdateValueTA,
+			secretValueViewport:    viewport.New(0, 0),
+			filterInput:  secretsFilterInput,
+		},
+		styles:           s,
+		exportPathInput:       exportInput,
+		importPathInput:       importInput,
+		singleExportPathInput: singleExportInput,
+		settingsInputs:   settingsInputs,
+		loading:          true,
+		leftPanelRatio:   0.5,
+		showHelpModal:    false,
+		showLogsModal:    false,
+		showInspectionModal: false,
+		showSplash:       true,
+		logViewport:      viewport.New(0, 0),
+		inspectionViewport: viewport.New(0, 0),
+		profileCreateInput:  profileCreateInput,
 	}
+}
+
+func (m *Model) SetProgram(p *tea.Program) {
+	m.program = p
+}
+
+func (m *Model) LogCh() chan<- string {
+	return m.logCh
 }
 
 func (m Model) spinnerView() string {
@@ -513,5 +502,7 @@ func (m Model) Init() tea.Cmd {
 	return tea.Batch(
 		m.loadConfigCmd(),
 		m.splashTickCmd(),
+		m.autoRefreshTickCmd(),
+		m.logCaptureCmd(),
 	)
 }

@@ -9,13 +9,18 @@ type AWSConfig struct {
 	ServiceName     string             `json:"service_name"`
 	EndpointURL     string             `json:"endpoint_url"`
 	Region          string             `json:"region"`
-	AccessKeyID     string             `json:"access_key_id"`
-	SecretAccessKey string             `json:"secret_access_key"`
+	AccessKeyID     string             `json:"access_key_id,omitempty"`
+	SecretAccessKey string             `json:"secret_access_key,omitempty"`
+	AccessKeyIDEnc     string          `json:"access_key_id_enc,omitempty"`
+	SecretAccessKeyEnc string          `json:"secret_access_key_enc,omitempty"`
 	UseMock         bool               `json:"use_mock"`
 	LeftPanelRatio  float64            `json:"left_panel_ratio"`
 	PanelRatios     map[string]float64 `json:"panel_ratios,omitempty"`
 	EnabledServices []string           `json:"enabled_services,omitempty"`
 	SnapshotPath    string             `json:"snapshot_path,omitempty"`
+
+	Profiles      map[string]*AWSConfig `json:"profiles,omitempty"`
+	ActiveProfile string                `json:"active_profile,omitempty"`
 }
 
 const (
@@ -74,6 +79,10 @@ func ServiceEnabled(values []string, service string) bool {
 type ConfigStore interface {
 	Load() (*AWSConfig, error)
 	Save(cfg *AWSConfig) error
+	ListProfiles() ([]string, error)
+	SwitchProfile(name string) error
+	SaveProfile(name string, cfg *AWSConfig) error
+	DeleteProfile(name string) error
 }
 
 type ManagedSubscription struct {

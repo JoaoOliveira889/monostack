@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/viewport"
 	"github.com/charmbracelet/lipgloss"
 
 	"monostack/internal/pkg/ui"
@@ -37,6 +38,8 @@ func (m Model) renderCommandLog(width int) string {
 		status := m.styles.SuccessBadge.Render("SUCCESS")
 		if entry.Error != nil {
 			status = m.styles.ErrorBadge.Render("FAILED")
+		} else if strings.Contains(strings.ToLower(entry.Output+entry.Target), "warning") {
+			status = m.styles.WarningBadge.Render("WARN")
 		}
 
 		headLine := fmt.Sprintf("  [%s] %s > %s : %s", timeStr, entry.Action, entry.Target, status)
@@ -78,6 +81,27 @@ func (m Model) renderCommandLog(width int) string {
 func (m Model) renderLogsModal() string {
 	var builder strings.Builder
 	builder.WriteString(m.styles.Title.Render("Command Logs") + "\n\n")
+
+	innerWidth := m.width - 12
+	if innerWidth < 40 {
+		innerWidth = 40
+	}
+	innerHeight := m.height - 10
+	if innerHeight < 6 {
+		innerHeight = 6
+	}
+	vpHeight := innerHeight - 3
+	if vpHeight < 3 {
+		vpHeight = 3
+	}
+
+	if m.logViewport.Width != innerWidth || m.logViewport.Height != vpHeight {
+		m.logViewport = viewport.New(innerWidth, vpHeight)
+	} else {
+		m.logViewport.Width = innerWidth
+		m.logViewport.Height = vpHeight
+	}
+	m.logViewport.SetContent(m.renderCommandLog(innerWidth))
 
 	if len(m.commandLogs) == 0 {
 		builder.WriteString(m.styles.InfoText.Render("No commands executed yet.") + "\n\n")
