@@ -274,3 +274,22 @@ type profileDeletedMsg struct {
 	Name   string
 	Config *domain.AWSConfig
 }
+
+type toastTickMsg struct{}
+
+type batchS3DeleteMsg struct {
+	DeletedBuckets int
+	DeletedObjects int
+}
+
+type batchSQSDeleteMsg struct {
+	Count int
+}
+
+type batchSNSDeleteMsg struct {
+	Count int
+}
+
+type batchSecretsDeleteMsg struct {
+	Count int
+}

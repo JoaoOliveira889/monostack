@@ -58,6 +58,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.config = msg.Config
 		m.loading = false
 		m.leftPanelRatio = msg.Config.LeftPanelRatio
+		if msg.Config.Theme != "" {
+			m.ApplyTheme(Theme(msg.Config.Theme))
+		}
 		m.appendCommandLog("config", msg.Config.ServiceName, "configuration loaded", nil)
 		if !msg.Config.UseMock {
 			return m, m.healthCheckCmd()
@@ -79,6 +82,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.leftPanelRatio = msg.Config.LeftPanelRatio
 		m.loading = false
 		m.syncSettingsInputsFromConfig()
+		if msg.Config.Theme != "" {
+			m.ApplyTheme(Theme(msg.Config.Theme))
+		}
 		m.appendCommandLog("config", msg.Config.ServiceName, "configuration saved", nil)
 		m.ensureActiveTabVisible()
 		cmds = []tea.Cmd{m.setStatusMessage("Configuration saved successfully!")}
@@ -477,6 +483,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.syncSettingsInputsFromConfig()
 		m.ensureActiveTabVisible()
 		m.loading = false
+		if msg.Config.Theme != "" {
+			m.ApplyTheme(Theme(msg.Config.Theme))
+		}
 		m.appendCommandLog("profile", msg.Name, "profile switched", nil)
 		cmds = []tea.Cmd{m.setStatusMessage("Switched to profile: " + msg.Name)}
 		if reload := m.reloadTabCmd(); reload != nil {
@@ -531,6 +540,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.leftPanelRatio = cfg.LeftPanelRatio
 			m.syncSettingsInputsFromConfig()
 			m.ensureActiveTabVisible()
+			if cfg.Theme != "" {
+				m.ApplyTheme(Theme(cfg.Theme))
+			}
 		}
 		m.loading = false
 		m.appendCommandLog("import snapshot", msg.Path, fmt.Sprintf("%d subscriptions restored", msg.SubsCount), nil)
@@ -574,6 +586,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case toastTickMsg:
+		m.pruneExpiredToasts(time.Now())
+		if len(m.toasts) > 0 {
+			return m, m.toastTickCmd()
+		}
+		m.toastTimerActive = false
+		return m, nil
+
 	case tea.MouseMsg:
 		if m.anyModalOpen() {
 			return m, nil
@@ -591,6 +611,30 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
+
+		if m.showCommandPalette {
+			switch msg.String() {
+			case "esc":
+				m.closeCommandPalette()
+				return m, nil
+			case "enter":
+				return m, m.executeCommandPaletteItem()
+			case "up", "k", "ctrl+k":
+				if m.commandPaletteCursor > 0 {
+					m.commandPaletteCursor--
+				}
+				return m, nil
+			case "down", "j", "ctrl+j":
+				if m.commandPaletteCursor < len(m.commandPaletteFiltered)-1 {
+					m.commandPaletteCursor++
+				}
+				return m, nil
+			default:
+				m.commandPaletteInput, _ = m.commandPaletteInput.Update(msg)
+				m.filterCommandPalette(m.commandPaletteInput.Value())
+				return m, nil
+			}
+		}
 
 		if m.showS3CreateModal {
 			switch msg.String() {
@@ -1573,6 +1617,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+		if m.showMultiDeleteConfirm {
+			switch msg.String() {
+			case "y", "Y":
+				return m, m.executeMultiDeleteCmd()
+			default:
+				m.showMultiDeleteConfirm = false
+				m.clearMultiSelect()
+				return m, nil
+			}
+		}
+
 		if m.showInspectionModal {
 			switch msg.String() {
 			case "esc", "enter":
@@ -1785,7 +1840,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, keys.Quit):
 			return m, tea.Quit
 
-		case msg.String() == "ctrl+p" || msg.String() == "?":
+		case key.Matches(msg, keys.CommandPalette):
+			return m, m.openCommandPalette()
+
+		case msg.String() == "?":
 			m.showHelpModal = !m.showHelpModal
 			return m, nil
 
@@ -1808,13 +1866,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case msg.String() == "space":
-			return m, m.toggleSelection()
+			return m, m.toggleMultiSelectCmd()
 
 		case msg.String() == "y":
 			return m, m.copySelectedTextCmd()
 
 		case key.Matches(msg, keys.CopyARN):
 			return m, m.copyResourceARNCmd()
+
+		case key.Matches(msg, keys.ToggleTheme):
+			if m.currentTheme() == ThemeDark {
+				m.ApplyTheme(ThemeLight)
+				return m, m.pushToastCmd("Light theme enabled", ToastInfo)
+			}
+			m.ApplyTheme(ThemeDark)
+			return m, m.pushToastCmd("Dark theme enabled", ToastInfo)
 
 		case key.Matches(msg, keys.Filter):
 			if !m.isFilterActive() && m.activeTab != panelConfig {
@@ -1829,6 +1895,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case msg.String() == "esc" && m.selectionActive:
 			m.clearSelection()
+			m.clearMultiSelect()
+			return m, nil
+
+		case msg.String() == "esc" && m.multiSelectActive:
+			m.clearMultiSelect()
 			return m, nil
 
 		case msg.String() == "<" || msg.String() == ",":
@@ -1941,6 +2012,37 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case key.Matches(msg, keys.S3Delete) || key.Matches(msg, keys.SQSDelete) || key.Matches(msg, keys.SNSDelete) || key.Matches(msg, keys.SQSSubDelete):
+			if m.multiSelectActive && m.multiSelectCountForPanel() > 0 {
+				switch m.selectionContext {
+				case selectionS3Buckets:
+					m.showMultiDeleteConfirm = true
+					m.multiDeleteLabel = fmt.Sprintf("%d bucket(s)", m.s3MultiSelected.count())
+					m.multiDeleteKind = multiDelS3Buckets
+					return m, nil
+				case selectionS3Objects:
+					m.showMultiDeleteConfirm = true
+					m.multiDeleteLabel = fmt.Sprintf("%d object(s)", m.s3ObjectsMultiSelected.count())
+					m.multiDeleteKind = multiDelS3Objects
+					return m, nil
+				case selectionSQSQueues:
+					m.showMultiDeleteConfirm = true
+					m.multiDeleteLabel = fmt.Sprintf("%d queue(s)", m.sqsMultiSelected.count())
+					m.multiDeleteKind = multiDelSQSQueues
+					return m, nil
+				case selectionSNSTopics:
+					m.showMultiDeleteConfirm = true
+					m.multiDeleteLabel = fmt.Sprintf("%d topic(s)", m.snsMultiSelected.count())
+					m.multiDeleteKind = multiDelSNSTopics
+					return m, nil
+				case selectionSecrets:
+					m.showMultiDeleteConfirm = true
+					m.multiDeleteLabel = fmt.Sprintf("%d secret(s)", m.secretsMultiSelected.count())
+					m.multiDeleteKind = multiDelSecrets
+					return m, nil
+				default:
+					m.clearMultiSelect()
+				}
+			}
 			switch m.activeTab {
 			case panelS3:
 				if m.s3Focus == focusObjects && len(m.objects) > 0 {

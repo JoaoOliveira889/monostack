@@ -201,6 +201,11 @@ func (m *Model) setStatusMessage(message string) tea.Cmd {
 	m.statusMsg = message
 	m.errorMsg = ""
 	m.statusMsgID++
+	m.pushToast(message, ToastSuccess)
+	if !m.toastTimerActive {
+		m.toastTimerActive = true
+		return tea.Batch(clearStatusCmd(m.statusMsgID), m.toastTickCmd())
+	}
 	return clearStatusCmd(m.statusMsgID)
 }
 
@@ -208,6 +213,11 @@ func (m *Model) setErrorMessage(message string) tea.Cmd {
 	m.errorMsg = message
 	m.statusMsg = ""
 	m.statusMsgID++
+	m.pushToast(message, ToastError)
+	if !m.toastTimerActive {
+		m.toastTimerActive = true
+		return tea.Batch(clearStatusCmd(m.statusMsgID), m.toastTickCmd())
+	}
 	return clearStatusCmd(m.statusMsgID)
 }
 
@@ -1258,3 +1268,136 @@ func (m *Model) deleteProfileCmd(name string) tea.Cmd {
 		return profileDeletedMsg{Name: name, Config: cfg}
 	}
 }
+
+func (m *Model) toggleMultiSelectCmd() tea.Cmd {
+	m.toggleMultiSelect()
+	if m.multiSelectActive {
+		count := m.multiSelectCountForPanel()
+		return m.pushToastCmd(fmt.Sprintf("Multi-select: %d item(s) selected (d=delete, esc=clear)", count), ToastInfo)
+	}
+	return m.pushToastCmd("Multi-select cleared", ToastInfo)
+}
+
+func (m *Model) pushToastCmd(message string, t ToastType) tea.Cmd {
+	m.pushToast(message, t)
+	if !m.toastTimerActive {
+		m.toastTimerActive = true
+		return m.toastTickCmd()
+	}
+	return nil
+}
+
+func (m *Model) executeMultiDeleteCmd() tea.Cmd {
+	m.showMultiDeleteConfirm = false
+	m.loading = true
+	count := m.multiSelectCountForPanel()
+	kind := m.multiDeleteKind
+
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+
+		switch kind {
+		case multiDelS3Buckets:
+			deleted := 0
+			for idx := range m.s3MultiSelected {
+				if idx < len(m.buckets) {
+					if err := m.awsUseCase.DeleteS3Bucket(ctx, m.config, m.buckets[idx].Name); err != nil {
+						m.appendCommandLog("batch delete", m.buckets[idx].Name, "failed", err)
+						continue
+					}
+					m.appendCommandLog("batch delete", m.buckets[idx].Name, "deleted", nil)
+					deleted++
+				}
+			}
+			m.clearMultiSelect()
+			m.buckets = nil
+			m.selectedBucketIndex = 0
+			m.s3Focus = focusBuckets
+			m.clearS3BucketCache("")
+			return tea.Batch(m.loadS3BucketsCmd(), func() tea.Msg {
+				return statusMsg{Message: fmt.Sprintf("Deleted %d bucket(s)", deleted)}
+			})
+
+		case multiDelS3Objects:
+			deleted := 0
+			bucket := ""
+			if m.selectedBucketIndex < len(m.buckets) {
+				bucket = m.buckets[m.selectedBucketIndex].Name
+			}
+			for idx := range m.s3ObjectsMultiSelected {
+				if idx < len(m.objects) {
+					if err := m.awsUseCase.DeleteS3Object(ctx, m.config, bucket, m.objects[idx].Key); err != nil {
+						m.appendCommandLog("batch delete", bucket+"/"+m.objects[idx].Key, "failed", err)
+						continue
+					}
+					m.appendCommandLog("batch delete", bucket+"/"+m.objects[idx].Key, "deleted", nil)
+					deleted++
+				}
+			}
+			m.clearMultiSelect()
+			m.clearS3BucketCache(bucket)
+			m.s3ObjectsLoadedFor = ""
+			return tea.Batch(m.loadS3ObjectsCmd(bucket), func() tea.Msg {
+				return statusMsg{Message: fmt.Sprintf("Deleted %d object(s)", deleted)}
+			})
+
+		case multiDelSQSQueues:
+			deleted := 0
+			for idx := range m.sqsMultiSelected {
+				if idx < len(m.queues) {
+					q := m.queues[idx]
+					if err := m.awsUseCase.DeleteSQSQueue(ctx, m.config, q.URL); err != nil {
+						m.appendCommandLog("batch delete", q.Name, "failed", err)
+						continue
+					}
+					m.appendCommandLog("batch delete", q.Name, "deleted", nil)
+					deleted++
+				}
+			}
+			m.clearMultiSelect()
+			return tea.Batch(m.loadSQSQueuesCmd(), func() tea.Msg {
+				return statusMsg{Message: fmt.Sprintf("Deleted %d queue(s)", deleted)}
+			})
+
+		case multiDelSNSTopics:
+			deleted := 0
+			for idx := range m.snsMultiSelected {
+				if idx < len(m.topics) {
+					t := m.topics[idx]
+					if err := m.awsUseCase.DeleteSNSTopic(ctx, m.config, t.ARN); err != nil {
+						m.appendCommandLog("batch delete", t.Name, "failed", err)
+						continue
+					}
+					m.appendCommandLog("batch delete", t.Name, "deleted", nil)
+					deleted++
+				}
+			}
+			m.clearMultiSelect()
+			return tea.Batch(m.loadSNSTopicsCmd(), func() tea.Msg {
+				return statusMsg{Message: fmt.Sprintf("Deleted %d topic(s)", deleted)}
+			})
+
+		case multiDelSecrets:
+			deleted := 0
+			for idx := range m.secretsMultiSelected {
+				if idx < len(m.secrets) {
+					s := m.secrets[idx]
+					if err := m.awsUseCase.DeleteSecret(ctx, m.config, s.ARN, 7, false); err != nil {
+						m.appendCommandLog("batch delete", s.Name, "failed", err)
+						continue
+					}
+					m.appendCommandLog("batch delete", s.Name, "deleted", nil)
+					deleted++
+				}
+			}
+			m.clearMultiSelect()
+			return tea.Batch(m.loadSecretsCmd(), func() tea.Msg {
+				return statusMsg{Message: fmt.Sprintf("Deleted %d secret(s)", deleted)}
+			})
+		}
+		_ = count
+		return nil
+	}
+}
+

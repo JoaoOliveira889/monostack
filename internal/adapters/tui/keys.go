@@ -53,7 +53,9 @@ type keyMap struct {
 	Profile       key.Binding
 	ProfileExport key.Binding
 	ProfileImport key.Binding
-	CopyARN     key.Binding
+	CopyARN       key.Binding
+	CommandPalette key.Binding
+	ToggleTheme    key.Binding
 }
 
 var keys = keyMap{
@@ -236,5 +238,13 @@ var keys = keyMap{
 	CopyARN: key.NewBinding(
 		key.WithKeys("ctrl+y"),
 		key.WithHelp("ctrl+y", "copy ARN"),
+	),
+	CommandPalette: key.NewBinding(
+		key.WithKeys("ctrl+p"),
+		key.WithHelp("ctrl+p", "command palette"),
+	),
+	ToggleTheme: key.NewBinding(
+		key.WithKeys("T"),
+		key.WithHelp("T", "toggle light/dark theme"),
 	),
 }

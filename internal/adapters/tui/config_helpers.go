@@ -192,6 +192,7 @@ func (m *Model) activatePanel(panel activePanel) tea.Cmd {
 	m.errorMsg = ""
 	m.statusMsg = ""
 	m.clearSelection()
+	m.clearMultiSelect()
 
 	switch panel {
 	case panelS3:
@@ -281,6 +282,7 @@ func (m Model) configFromSettingsInputs() *domain.AWSConfig {
 
 	if m.config != nil {
 		cfg.PanelRatios = config.ClonePanelRatios(m.config.PanelRatios)
+		cfg.Theme = m.config.Theme
 	}
 
 	return cfg

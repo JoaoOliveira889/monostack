@@ -18,6 +18,7 @@ type AWSConfig struct {
 	PanelRatios     map[string]float64 `json:"panel_ratios,omitempty"`
 	EnabledServices []string           `json:"enabled_services,omitempty"`
 	SnapshotPath    string             `json:"snapshot_path,omitempty"`
+	Theme           string             `json:"theme,omitempty"`
 
 	Profiles      map[string]*AWSConfig `json:"profiles,omitempty"`
 	ActiveProfile string                `json:"active_profile,omitempty"`

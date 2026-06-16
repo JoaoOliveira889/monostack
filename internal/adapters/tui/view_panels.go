@@ -456,6 +456,7 @@ func (m Model) renderTitledPanel(width, height int, title string, content string
 func (m Model) renderLine(ctx selectionContext, index int, cursor int, text string, width int, active bool) string {
 	selected := index == cursor && active
 	rangeSelected := m.isIndexSelected(ctx, index)
+	multiSelected := m.multiSelectActive && m.selectionContext == ctx && m.multiSelectFor(ctx) != nil && m.multiSelectFor(ctx).contains(index)
 
 	bg := lipgloss.Color(ui.ColorBg)
 	fg := lipgloss.Color(ui.ColorFg)
@@ -473,7 +474,13 @@ func (m Model) renderLine(ctx selectionContext, index int, cursor int, text stri
 	}
 
 	prefix := "  "
-	if selected {
+	if m.multiSelectActive && m.selectionContext == ctx {
+		if multiSelected {
+			prefix = m.styles.MultiSelectedMarker.Render(" ✓ ")
+		} else {
+			prefix = "   "
+		}
+	} else if selected {
 		prefix = "> "
 	} else if rangeSelected {
 		prefix = "* "
@@ -2169,6 +2176,29 @@ func (m Model) renderProfileDeleteConfirmModal() string {
 	var builder strings.Builder
 	builder.WriteString(m.styles.Title.Render("Confirm Delete Profile") + "\n\n")
 	builder.WriteString(m.styles.InfoText.Render(fmt.Sprintf("Delete profile %q?", m.profileDeleteName)) + "\n\n")
+	builder.WriteString(m.styles.InfoText.Render("Press [Y] to Confirm | Any other key to Cancel"))
+	return builder.String()
+}
+
+func (m Model) renderMultiDeleteConfirmModal() string {
+	var builder strings.Builder
+	builder.WriteString(m.styles.Title.Render("Confirm Batch Delete") + "\n\n")
+
+	detail := m.multiDeleteLabel
+	switch m.multiDeleteKind {
+	case multiDelS3Buckets:
+		detail = fmt.Sprintf("Delete %d S3 bucket(s) and all their contents?\nThis action cannot be undone.", m.s3MultiSelected.count())
+	case multiDelS3Objects:
+		detail = fmt.Sprintf("Delete %d S3 object(s)?\nThis action cannot be undone.", m.s3ObjectsMultiSelected.count())
+	case multiDelSQSQueues:
+		detail = fmt.Sprintf("Delete %d SQS queue(s)?\nThis action cannot be undone.", m.sqsMultiSelected.count())
+	case multiDelSNSTopics:
+		detail = fmt.Sprintf("Delete %d SNS topic(s) and their subscriptions?\nThis action cannot be undone.", m.snsMultiSelected.count())
+	case multiDelSecrets:
+		detail = fmt.Sprintf("Delete %d secret(s)?\nDeleted secrets enter a recovery window.", m.secretsMultiSelected.count())
+	}
+
+	builder.WriteString(m.styles.InfoText.Render(detail) + "\n\n")
 	builder.WriteString(m.styles.InfoText.Render("Press [Y] to Confirm | Any other key to Cancel"))
 	return builder.String()
 }

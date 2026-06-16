@@ -4,12 +4,12 @@
   <a href="https://github.com/JoaoOliveira889/monostack/releases/latest"><img src="https://img.shields.io/github/v/release/JoaoOliveira889/monostack?color=7aa2f7&label=tag&logo=github&style=flat-square" alt="Latest Tag"></a>
   <a href="https://github.com/JoaoOliveira889/monostack/releases/latest"><img src="https://img.shields.io/github/downloads/JoaoOliveira889/monostack/total?color=9ece6a&label=downloads&logo=github&style=flat-square" alt="Total Downloads"></a>
   <a href="https://goreportcard.com/report/github.com/JoaoOliveira889/monostack"><img src="https://goreportcard.com/badge/github.com/JoaoOliveira889/monostack?style=flat-square" alt="Go Report Card"></a>
-  <a href="https://github.com/JoaoOliveira889/monostack"><img src="https://img.shields.io/badge/homebrew-v0.0.6-7dcfff?logo=homebrew&style=flat-square" alt="Homebrew Version"></a>
+   <a href="https://github.com/JoaoOliveira889/monostack"><img src="https://img.shields.io/badge/homebrew-v0.0.7-7dcfff?logo=homebrew&style=flat-square" alt="Homebrew Version"></a>
 </p>
 
 **Multi-service AWS dashboard for your terminal.** A TUI tool that connects to AWS (or LocalStack) and gives you a panoramic view of S3 buckets, SQS queues, SNS topics, and Secrets Manager — with one-key actions for common workflows and confirmation guards for every mutating command.
 
-Current release: [0.0.6](https://github.com/JoaoOliveira889/monostack)
+Current release: [0.0.7](https://github.com/JoaoOliveira889/monostack)
 
 ![MonoStack Dashboard](img/banner.jpg)
 

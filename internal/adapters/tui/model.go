@@ -45,6 +45,7 @@ const (
 	selectionS3Objects      selectionContext = "s3_objects"
 	selectionSQSQueues      selectionContext = "sqs_queues"
 	selectionSQSSubs        selectionContext = "sqs_subscriptions"
+	selectionSQSTopics      selectionContext = "sqs_topics"
 	selectionSNSTopics      selectionContext = "sns_topics"
 	selectionSNSSubs        selectionContext = "sns_subscriptions"
 	selectionSecrets        selectionContext = "secrets"
@@ -121,8 +122,40 @@ type Model struct {
 	showProfileDeleteConfirm bool
 	profileDeleteName   string
 
+	toasts                  []Toast
+	toastTimerActive        bool
+
+	showCommandPalette      bool
+	commandPaletteInput     textinput.Model
+	commandPaletteItems     []CommandPaletteItem
+	commandPaletteFiltered  []CommandPaletteItem
+	commandPaletteCursor    int
+
+	multiSelectActive       bool
+	s3MultiSelected         multiSelectSet
+	s3ObjectsMultiSelected  multiSelectSet
+	sqsMultiSelected        multiSelectSet
+	sqsTopMultiSelected     multiSelectSet
+	snsMultiSelected        multiSelectSet
+	snsSubsMultiSelected    multiSelectSet
+	secretsMultiSelected    multiSelectSet
+
+	showMultiDeleteConfirm bool
+	multiDeleteLabel       string
+	multiDeleteKind        multiDeleteKind
+
 	styles styles
 }
+
+type multiDeleteKind int
+
+const (
+	multiDelS3Buckets multiDeleteKind = iota
+	multiDelS3Objects
+	multiDelSQSQueues
+	multiDelSNSTopics
+	multiDelSecrets
+)
 
 type CommandLogEntry struct {
 	Time   time.Time
@@ -143,7 +176,9 @@ func (m *Model) cancelSpecialModes() {
 	m.showSecretClipboardConfirm = false
 	m.showProfileModal = false
 	m.showProfileDeleteConfirm = false
+	m.showCommandPalette = false
 	m.clearSelection()
+	m.clearMultiSelect()
 }
 
 func (m Model) anyModalOpen() bool {
@@ -183,7 +218,9 @@ func (m Model) anyModalOpen() bool {
 		m.showInspectionModal ||
 		m.showProfileModal ||
 		m.showProfileDeleteConfirm ||
-		m.settingsEditMode
+		m.settingsEditMode ||
+		m.showCommandPalette ||
+		m.showMultiDeleteConfirm
 }
 
 type styles struct {
@@ -194,18 +231,28 @@ type styles struct {
 	InactiveTab      lipgloss.Style
 	BorderPanel      lipgloss.Style
 	FocusedPanel     lipgloss.Style
+	Card             lipgloss.Style
+	Cursor           lipgloss.Style
+	ToastSuccess     lipgloss.Style
+	ToastError       lipgloss.Style
+	ToastInfo        lipgloss.Style
 	Title            lipgloss.Style
 	Highlight        lipgloss.Style
 	ListItem         lipgloss.Style
 	SelectedListItem lipgloss.Style
+	MultiSelectedMarker lipgloss.Style
+	CPCategory       lipgloss.Style
+	CPItem           lipgloss.Style
+	CPSelected       lipgloss.Style
+	CPKey            lipgloss.Style
 	InputLabel       lipgloss.Style
 	InputFocused     lipgloss.Style
 	InputUnfocused   lipgloss.Style
 	Modal            lipgloss.Style
-		SuccessBadge     lipgloss.Style
-		WarningBadge     lipgloss.Style
-		ErrorBadge       lipgloss.Style
-		InfoText         lipgloss.Style
+	SuccessBadge     lipgloss.Style
+	WarningBadge     lipgloss.Style
+	ErrorBadge       lipgloss.Style
+	InfoText         lipgloss.Style
 }
 
 var Version = "0.0.4"
@@ -214,106 +261,7 @@ const splashFrameLimit = 20
 const autoRefreshInterval = 5 * time.Second
 
 func NewModel(awsUseCase *usecase.AWSUseCase, configUseCase *usecase.ConfigUseCase, snapshotUseCase *usecase.SnapshotUseCase) Model {
-
-	s := styles{
-		Header: lipgloss.NewStyle().
-			Foreground(lipgloss.Color(ui.ColorMono)).
-			Bold(true).
-			Padding(0, 1),
-
-		Subtitle: lipgloss.NewStyle().
-			Foreground(lipgloss.Color(ui.ColorSubtle)).
-			PaddingLeft(1),
-
-		Footer: lipgloss.NewStyle().
-			Background(lipgloss.Color(ui.ColorBg)).
-			Foreground(lipgloss.Color(ui.ColorSubtle)).
-			Padding(0, 1),
-
-		ActiveTab: lipgloss.NewStyle().
-			Background(lipgloss.Color(ui.ColorStack)).
-			Foreground(lipgloss.Color(ui.ColorBg)).
-			Bold(true).
-			Padding(0, 1).
-			MarginRight(1),
-
-		InactiveTab: lipgloss.NewStyle().
-			Background(lipgloss.Color(ui.ColorBg)).
-			Foreground(lipgloss.Color(ui.ColorSubtle)).
-			Padding(0, 1).
-			MarginRight(1),
-
-		BorderPanel: lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color(ui.ColorMono)).
-			Padding(0, 0),
-
-		FocusedPanel: lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color(ui.ColorStack)).
-			Padding(0, 0),
-
-		Title: lipgloss.NewStyle().
-			Foreground(lipgloss.Color(ui.ColorStack)).
-			Bold(true).
-			Padding(0, 1),
-
-		Highlight: lipgloss.NewStyle().
-			Foreground(lipgloss.Color(ui.ColorHighlight)),
-
-		ListItem: lipgloss.NewStyle().
-			Foreground(lipgloss.Color(ui.ColorFg)),
-
-		SelectedListItem: lipgloss.NewStyle().
-			Background(lipgloss.Color(ui.ColorHighlight)).
-			Foreground(lipgloss.Color(ui.ColorBg)).
-			Bold(true),
-
-		InputLabel: lipgloss.NewStyle().
-			Foreground(lipgloss.Color(ui.ColorAccent)).
-			Bold(true),
-
-		InputFocused: lipgloss.NewStyle().
-			Border(lipgloss.NormalBorder()).
-			BorderForeground(lipgloss.Color(ui.ColorStack)).
-			Padding(0, 1).
-			Width(44).
-			MarginLeft(2),
-
-		InputUnfocused: lipgloss.NewStyle().
-			Border(lipgloss.NormalBorder()).
-			BorderForeground(lipgloss.Color(ui.ColorBorder)).
-			Padding(0, 1).
-			Width(44).
-			MarginLeft(2),
-
-		Modal: lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color(ui.ColorStack)).
-			Background(lipgloss.Color(ui.ColorBg)).
-			Padding(1, 2),
-
-		SuccessBadge: lipgloss.NewStyle().
-			Background(lipgloss.Color(ui.ColorSuccess)).
-			Foreground(lipgloss.Color(ui.ColorBg)).
-			Bold(true).
-			Padding(0, 1),
-
-		WarningBadge: lipgloss.NewStyle().
-			Background(lipgloss.Color(ui.ColorWarning)).
-			Foreground(lipgloss.Color(ui.ColorBg)).
-			Bold(true).
-			Padding(0, 1),
-
-		ErrorBadge: lipgloss.NewStyle().
-			Background(lipgloss.Color(ui.ColorError)).
-			Foreground(lipgloss.Color(ui.ColorBg)).
-			Bold(true).
-			Padding(0, 1),
-
-		InfoText: lipgloss.NewStyle().
-			Foreground(lipgloss.Color(ui.ColorSubtle)),
-	}
+	s := makeDefaultStyles()
 
 	sqsInput := textinput.New()
 	sqsInput.Placeholder = `{"body": "payload"}`
@@ -428,6 +376,14 @@ func NewModel(awsUseCase *usecase.AWSUseCase, configUseCase *usecase.ConfigUseCa
 	profileCreateInput.Placeholder = "profile-name"
 	profileCreateInput.Width = 40
 
+	cpInput := textinput.New()
+	cpInput.Placeholder = "Type a command..."
+	cpInput.Width = 40
+	cpInput.Prompt = "> "
+	cpInput.PromptStyle = lipgloss.NewStyle().
+		Foreground(lipgloss.Color(ui.ColorAccent)).
+		Bold(true)
+
 	return Model{
 		awsUseCase:              awsUseCase,
 		configUseCase:           configUseCase,
@@ -483,6 +439,14 @@ func NewModel(awsUseCase *usecase.AWSUseCase, configUseCase *usecase.ConfigUseCa
 		logViewport:      viewport.New(0, 0),
 		inspectionViewport: viewport.New(0, 0),
 		profileCreateInput:  profileCreateInput,
+		commandPaletteInput: cpInput,
+		s3MultiSelected:        newMultiSelectSet(),
+		s3ObjectsMultiSelected: newMultiSelectSet(),
+		sqsMultiSelected:       newMultiSelectSet(),
+		sqsTopMultiSelected:    newMultiSelectSet(),
+		snsMultiSelected:       newMultiSelectSet(),
+		snsSubsMultiSelected:   newMultiSelectSet(),
+		secretsMultiSelected:   newMultiSelectSet(),
 	}
 }
 
@@ -505,4 +469,153 @@ func (m Model) Init() tea.Cmd {
 		m.autoRefreshTickCmd(),
 		m.logCaptureCmd(),
 	)
+}
+
+func makeDefaultStyles() styles {
+	return styles{
+		Header: lipgloss.NewStyle().
+			Foreground(lipgloss.Color(ui.ColorMono)).
+			Bold(true).
+			Padding(0, 1),
+
+		Subtitle: lipgloss.NewStyle().
+			Foreground(lipgloss.Color(ui.ColorSubtle)).
+			PaddingLeft(1),
+
+		Footer: lipgloss.NewStyle().
+			Background(lipgloss.Color(ui.ColorBg)).
+			Foreground(lipgloss.Color(ui.ColorSubtle)).
+			Padding(0, 1),
+
+		ActiveTab: lipgloss.NewStyle().
+			Background(lipgloss.Color(ui.ColorStack)).
+			Foreground(lipgloss.Color(ui.ColorBg)).
+			Bold(true).
+			Padding(0, 1).
+			MarginRight(1),
+
+		InactiveTab: lipgloss.NewStyle().
+			Background(lipgloss.Color(ui.ColorBg)).
+			Foreground(lipgloss.Color(ui.ColorSubtle)).
+			Padding(0, 1).
+			MarginRight(1),
+
+		BorderPanel: lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color(ui.ColorMono)).
+			Padding(0, 0),
+
+		FocusedPanel: lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color(ui.ColorStack)).
+			Padding(0, 0),
+
+		Card: lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color(ui.ColorBorder)).
+			Background(lipgloss.Color(ui.ColorBg)).
+			Padding(1, 2),
+
+		Cursor: lipgloss.NewStyle().
+			Foreground(lipgloss.Color(ui.ColorHighlight)).
+			Bold(true),
+
+		ToastSuccess: lipgloss.NewStyle().
+			Background(lipgloss.Color(ui.ColorSuccess)).
+			Foreground(lipgloss.Color(ui.ColorBg)).
+			Bold(true).
+			Padding(0, 2),
+
+		ToastError: lipgloss.NewStyle().
+			Background(lipgloss.Color(ui.ColorError)).
+			Foreground(lipgloss.Color(ui.ColorBg)).
+			Bold(true).
+			Padding(0, 2),
+
+		ToastInfo: lipgloss.NewStyle().
+			Background(lipgloss.Color(ui.ColorCyan)).
+			Foreground(lipgloss.Color(ui.ColorBg)).
+			Bold(true).
+			Padding(0, 2),
+
+		Title: lipgloss.NewStyle().
+			Foreground(lipgloss.Color(ui.ColorStack)).
+			Bold(true).
+			Padding(0, 1),
+
+		Highlight: lipgloss.NewStyle().
+			Foreground(lipgloss.Color(ui.ColorHighlight)),
+
+		ListItem: lipgloss.NewStyle().
+			Foreground(lipgloss.Color(ui.ColorFg)),
+
+		SelectedListItem: lipgloss.NewStyle().
+			Background(lipgloss.Color(ui.ColorHighlight)).
+			Foreground(lipgloss.Color(ui.ColorBg)).
+			Bold(true),
+
+		MultiSelectedMarker: lipgloss.NewStyle().
+			Foreground(lipgloss.Color(ui.ColorSuccess)).
+			Bold(true),
+
+		CPCategory: lipgloss.NewStyle().
+			Foreground(lipgloss.Color(ui.ColorAccent)).
+			Bold(true),
+
+		CPItem: lipgloss.NewStyle().
+			Foreground(lipgloss.Color(ui.ColorFg)),
+
+		CPSelected: lipgloss.NewStyle().
+			Background(lipgloss.Color(ui.ColorHighlight)).
+			Foreground(lipgloss.Color(ui.ColorBg)).
+			Bold(true),
+
+		CPKey: lipgloss.NewStyle().
+			Foreground(lipgloss.Color(ui.ColorStack)),
+
+		InputLabel: lipgloss.NewStyle().
+			Foreground(lipgloss.Color(ui.ColorAccent)).
+			Bold(true),
+
+		InputFocused: lipgloss.NewStyle().
+			Border(lipgloss.NormalBorder()).
+			BorderForeground(lipgloss.Color(ui.ColorStack)).
+			Padding(0, 1).
+			Width(44).
+			MarginLeft(2),
+
+		InputUnfocused: lipgloss.NewStyle().
+			Border(lipgloss.NormalBorder()).
+			BorderForeground(lipgloss.Color(ui.ColorBorder)).
+			Padding(0, 1).
+			Width(44).
+			MarginLeft(2),
+
+		Modal: lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color(ui.ColorStack)).
+			Background(lipgloss.Color(ui.ColorBg)).
+			Padding(1, 2),
+
+		SuccessBadge: lipgloss.NewStyle().
+			Background(lipgloss.Color(ui.ColorSuccess)).
+			Foreground(lipgloss.Color(ui.ColorBg)).
+			Bold(true).
+			Padding(0, 1),
+
+		WarningBadge: lipgloss.NewStyle().
+			Background(lipgloss.Color(ui.ColorWarning)).
+			Foreground(lipgloss.Color(ui.ColorBg)).
+			Bold(true).
+			Padding(0, 1),
+
+		ErrorBadge: lipgloss.NewStyle().
+			Background(lipgloss.Color(ui.ColorError)).
+			Foreground(lipgloss.Color(ui.ColorBg)).
+			Bold(true).
+			Padding(0, 1),
+
+		InfoText: lipgloss.NewStyle().
+			Foreground(lipgloss.Color(ui.ColorSubtle)),
+	}
 }

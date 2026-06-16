@@ -30,6 +30,10 @@ func (m Model) View() string {
 		footer,
 	)
 
+	if toastView := m.renderToasts(m.width); toastView != "" {
+		view = lipgloss.JoinVertical(lipgloss.Left, toastView, view)
+	}
+
 	if m.showProgress && m.width > 0 {
 		progressView := m.progress.view()
 		view += "\n" + lipgloss.NewStyle().
@@ -246,6 +250,18 @@ func (m Model) View() string {
 		)
 	}
 
+	if m.showMultiDeleteConfirm {
+		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
+			m.styles.Modal.Render(m.renderMultiDeleteConfirmModal()),
+		)
+	}
+
+	if m.showCommandPalette {
+		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
+			m.renderCommandPalette(),
+		)
+	}
+
 	return lipgloss.NewStyle().
 		MaxWidth(m.width).
 		MaxHeight(m.height).
@@ -456,7 +472,18 @@ func (m Model) renderFooter() string {
 		}
 	}
 
+	if m.multiSelectActive {
+		count := m.multiSelectCountForPanel()
+		primary = []string{
+			m.footerItem("space", "toggle item"),
+			m.footerItem("d", fmt.Sprintf("delete %d selected", count)),
+			m.footerItem("esc", "clear"),
+		}
+	}
+
 	primary = append(primary, m.footerItem("o", "logs"))
+	primary = append(primary, m.footerItem("ctrl+p", "commands"))
+	primary = append(primary, m.footerItem("T", "theme"))
 	version := lipgloss.NewStyle().
 		Foreground(lipgloss.Color(ui.ColorSubtle)).
 		Render(fmt.Sprintf("MonoStack %s", Version))
