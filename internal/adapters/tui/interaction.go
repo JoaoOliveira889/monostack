@@ -505,8 +505,9 @@ func (m *Model) copyS3PathCmd() tea.Cmd {
 	}
 
 	return func() tea.Msg {
-		if err := clipboard.WriteAll(path); err != nil {
-			return errMsg{Error: fmt.Errorf("clipboard unavailable: %w", err)}
+		err := clipboard.WriteAll(path)
+		if err != nil {
+			return statusMsg{Message: "S3 path: " + path + " (clipboard unavailable)"}
 		}
 		return statusMsg{Message: "S3 path copied: " + path}
 	}

@@ -70,8 +70,11 @@ func TestCopyS3PathCmd(t *testing.T) {
 		t.Fatalf("expected statusMsg, got %T", msg)
 	}
 
-	expected := "S3 path copied: s3://test-bucket/test-folder/test-file.txt"
-	if status.Message != expected {
-		t.Errorf("expected status message %q, got %q", expected, status.Message)
+	expectedPrefix := "S3 path"
+	if !strings.Contains(status.Message, expectedPrefix) {
+		t.Errorf("expected status message to contain %q, got %q", expectedPrefix, status.Message)
+	}
+	if !strings.Contains(status.Message, "s3://test-bucket/test-folder/test-file.txt") {
+		t.Errorf("expected status message to contain the S3 path, got %q", status.Message)
 	}
 }
