@@ -17,16 +17,12 @@ type s3PanelState struct {
 	s3ObjectsLoadedFor  string
 	s3Focus             focusArea
 
-	currentPrefix   string   // current folder prefix, e.g. "images/2024/"
-	prefixStack     []string // breadcrumb stack
-	breadcrumbPositions []int // X positions of breadcrumb segment starts
+	currentPrefix   string
+	prefixStack     []string
+	breadcrumbPositions []int
 
-	filterInput  textinput.Model
-	filterActive bool
-	filterQuery  string
-
-	sortField     int // 0=name, 1=size, 2=date
-	sortAscending bool
+	filter filterState
+	sort   sortState
 
 	showS3ConfirmDelete bool
 	s3DeleteBucket      string
@@ -57,12 +53,8 @@ type sqsPanelState struct {
 	selectedPeekIndex     int
 	sqsFocus              focusArea
 
-	filterInput  textinput.Model
-	filterActive bool
-	filterQuery  string
-
-	sortField     int // 0=name, 1=available, 2=delayed, 3=in-flight
-	sortAscending bool
+	filter filterState
+	sort   sortState
 
 	showPeekModal           bool
 	showSqsSendModal        bool
@@ -76,6 +68,10 @@ type sqsPanelState struct {
 	showSqsSubDeleteConfirm bool
 	sqsDeleteSubARN         string
 	sqsDeleteSubLabel       string
+
+	showSqsBatchSubModal bool
+	sqsBatchSubCursor    int
+	sqsBatchSubList      []toggleOption
 }
 
 type snsPanelState struct {
@@ -88,12 +84,8 @@ type snsPanelState struct {
 	snsSubFocus        focusArea
 	snsOutgoingCount   int
 
-	filterInput  textinput.Model
-	filterActive bool
-	filterQuery  string
-
-	sortField     int // 0=name
-	sortAscending bool
+	filter filterState
+	sort   sortState
 
 	showSnsPublishModal     bool
 	snsPublishInput         textinput.Model
@@ -114,9 +106,6 @@ type snsPanelState struct {
 	snsYamlSavedContent     map[string]string
 	snsYamlCurrentTopicARN  string
 	snsYamlPendingContent   string
-	showSqsBatchSubModal    bool
-	sqsBatchSubCursor       int
-	sqsBatchSubList         []toggleOption
 	showSnsSubEditModal     bool
 	snsSubEditInput         textinput.Model
 	showSnsConfirmDelete    bool
@@ -137,12 +126,8 @@ type secretsPanelState struct {
 	secretValueViewport        viewport.Model
 	secretsFocus               focusArea
 
-	filterInput  textinput.Model
-	filterActive bool
-	filterQuery  string
-
-	sortField     int // 0=name, 1=date
-	sortAscending bool
+	filter filterState
+	sort   sortState
 
 	showSecretCreateModal      bool
 	showSecretUpdateModal      bool

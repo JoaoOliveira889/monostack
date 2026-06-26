@@ -162,3 +162,7 @@ func QueueARNFromURL(queueURL, regionHint string) string {
 
 	return fmt.Sprintf("arn:aws:sqs:%s:%s:%s", region, accountID, queueName)
 }
+
+func SNSSubscriptionKey(topicARN, protocol, endpoint string) string {
+	return strings.Join([]string{topicARN, protocol, endpoint}, "|")
+}

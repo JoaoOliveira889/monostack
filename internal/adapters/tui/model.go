@@ -144,7 +144,10 @@ type Model struct {
 	multiDeleteLabel       string
 	multiDeleteKind        multiDeleteKind
 
-	styles styles
+	styles     styles
+	modalDepth int
+
+	serviceHealth domain.ServiceHealth
 }
 
 type multiDeleteKind int
@@ -253,9 +256,13 @@ type styles struct {
 	WarningBadge     lipgloss.Style
 	ErrorBadge       lipgloss.Style
 	InfoText         lipgloss.Style
+	BrandMono        lipgloss.Style
+	BrandStack       lipgloss.Style
+	FooterKey        lipgloss.Style
+	FooterAction     lipgloss.Style
 }
 
-var Version = "0.0.4"
+var Version = "0.0.9"
 
 const splashFrameLimit = 20
 const autoRefreshInterval = 5 * time.Second
@@ -391,19 +398,19 @@ func NewModel(awsUseCase *usecase.AWSUseCase, configUseCase *usecase.ConfigUseCa
 		logCh:                   make(chan string, 256),
 		activeTab:               panelS3,
 		s3PanelState: s3PanelState{
-			s3Focus:       focusBuckets,
-			s3ObjectsCache: make(map[string][]domain.S3Object),
-			s3CreateInput:  s3CInput,
+			s3Focus:           focusBuckets,
+			s3ObjectsCache:    make(map[string][]domain.S3Object),
+			s3CreateInput:     s3CInput,
 			s3UploadPathInput: s3UploadPath,
 			s3UploadKeyInput:  s3UploadKey,
 			s3FolderInput:     s3FolderInput,
-			filterInput:  s3FilterInput,
+			filter:            newFilterState(s3FilterInput),
 		},
 		sqsPanelState: sqsPanelState{
 			sqsSendMessageInput: sqsInput,
 			sqsCreateInput:      sqsCInput,
 			sqsFocus:            focusQueues,
-			filterInput:  sqsFilterInput,
+			filter:              newFilterState(sqsFilterInput),
 		},
 		snsPanelState: snsPanelState{
 			snsPublishInput:      snsInput,
@@ -415,7 +422,7 @@ func NewModel(awsUseCase *usecase.AWSUseCase, configUseCase *usecase.ConfigUseCa
 			snsYamlSavedContent:  make(map[string]string),
 			snsSubFocus:          focusTopics,
 			showSnsYamlApplyConfirm: false,
-			filterInput:  snsFilterInput,
+			filter:               newFilterState(snsFilterInput),
 		},
 		secretsPanelState: secretsPanelState{
 			secretsFocus:          focusSecrets,
@@ -423,7 +430,7 @@ func NewModel(awsUseCase *usecase.AWSUseCase, configUseCase *usecase.ConfigUseCa
 			secretCreateValueInput: secretValueTA,
 			secretUpdateValueInput: secretUpdateValueTA,
 			secretValueViewport:    viewport.New(0, 0),
-			filterInput:  secretsFilterInput,
+			filter:                 newFilterState(secretsFilterInput),
 		},
 		styles:           s,
 		exportPathInput:       exportInput,
@@ -617,5 +624,20 @@ func makeDefaultStyles() styles {
 
 		InfoText: lipgloss.NewStyle().
 			Foreground(lipgloss.Color(ui.ColorSubtle)),
+
+		BrandMono: lipgloss.NewStyle().
+			Foreground(lipgloss.Color(ui.ColorMono)).
+			Bold(true),
+
+		BrandStack: lipgloss.NewStyle().
+			Foreground(lipgloss.Color(ui.ColorStack)).
+			Bold(true),
+
+		FooterKey: lipgloss.NewStyle().
+			Foreground(lipgloss.Color(ui.ColorAccent)).
+			Bold(true),
+
+		FooterAction: lipgloss.NewStyle().
+			Foreground(lipgloss.Color(ui.ColorFg)),
 	}
 }

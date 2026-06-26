@@ -11,6 +11,10 @@ type healthCheckMsg struct {
 	Err string
 }
 
+type healthCheckAllMsg struct {
+	Health domain.ServiceHealth
+}
+
 type configLoadedMsg struct {
 	Config *domain.AWSConfig
 }

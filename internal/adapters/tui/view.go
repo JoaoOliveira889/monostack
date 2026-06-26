@@ -6,6 +6,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
+	"monostack/internal/domain"
 	"monostack/internal/pkg/ui"
 )
 
@@ -30,8 +31,14 @@ func (m Model) View() string {
 		footer,
 	)
 
-	if toastView := m.renderToasts(m.width); toastView != "" {
-		view = lipgloss.JoinVertical(lipgloss.Left, toastView, view)
+	if toastView := m.renderToasts(); toastView != "" {
+		startRow := lipgloss.Height(header) + lipgloss.Height(tabBar)
+		toastWidth := lipgloss.Width(toastView)
+		startCol := m.width - toastWidth - 2
+		if startCol < 0 {
+			startCol = 0
+		}
+		view = overlayString(view, toastView, startRow, startCol)
 	}
 
 	if m.showProgress && m.width > 0 {
@@ -42,224 +49,96 @@ func (m Model) View() string {
 			Render(progressView)
 	}
 
-	if m.showS3ConfirmDelete {
-		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
-			m.styles.Modal.Render(m.renderS3ConfirmDeleteModal()),
-		)
+	var modalView string
+	switch {
+	case m.showS3ConfirmDelete:
+		modalView = m.styles.Modal.Render(m.renderS3ConfirmDeleteModal())
+	case m.showSqsConfirmDelete:
+		modalView = m.styles.Modal.Render(m.renderSqsConfirmDeleteModal())
+	case m.showSqsPurgeAllConfirm:
+		modalView = m.styles.Modal.Render(m.renderSqsPurgeAllConfirmModal())
+	case m.showSqsSubDeleteConfirm:
+		modalView = m.styles.Modal.Render(m.renderSqsSubDeleteConfirmModal())
+	case m.showSnsPublishModal:
+		modalView = m.styles.Modal.Render(m.renderSnsPublishModal())
+	case m.showS3CreateModal:
+		modalView = m.styles.Modal.Render(m.renderS3CreateBucketModal())
+	case m.showS3CreateFolderModal:
+		modalView = m.styles.Modal.Render(m.renderS3CreateFolderModal())
+	case m.showS3UploadModal:
+		modalView = m.styles.Modal.Render(m.renderS3UploadModal())
+	case m.showS3PreviewModal:
+		modalView = m.styles.Modal.Render(m.renderS3PreviewModal())
+	case m.showVersionsModal:
+		modalView = m.styles.Modal.Render(m.renderS3VersionsModal())
+	case m.showSqsCreateModal:
+		modalView = m.styles.Modal.Render(m.renderSqsCreateQueueModal())
+	case m.showSnsCreateTopicModal:
+		modalView = m.styles.Modal.Render(m.renderSnsCreateTopicModal())
+	case m.showSnsSimpleSubModal:
+		modalView = m.styles.Modal.Render(m.renderSnsSimpleSubModal())
+	case m.showSnsBatchSubModal:
+		modalView = m.styles.Modal.Render(m.renderSnsBatchSubModal())
+	case m.showSnsYamlApplyConfirm:
+		modalView = m.styles.Modal.Render(m.renderSnsYamlApplyConfirmModal())
+	case m.showSnsYamlImportModal:
+		modalView = m.styles.Modal.Render(m.renderSnsYamlImportModal())
+	case m.showSqsBatchSubModal:
+		modalView = m.styles.Modal.Render(m.renderSqsBatchSubModal())
+	case m.showSnsSubEditModal:
+		modalView = m.styles.Modal.Render(m.renderSnsEditSubModal())
+	case m.showSnsConfirmDelete:
+		modalView = m.styles.Modal.Render(m.renderSnsConfirmDeleteModal())
+	case m.showSecretDeleteConfirm:
+		modalView = m.styles.Modal.Render(m.renderSecretDeleteConfirmModal())
+	case m.showSecretRestoreConfirm:
+		modalView = m.styles.Modal.Render(m.renderSecretRestoreConfirmModal())
+	case m.showSecretPromoteConfirm:
+		modalView = m.styles.Modal.Render(m.renderSecretPromoteConfirmModal())
+	case m.showSecretClipboardConfirm:
+		modalView = m.styles.Modal.Render(m.renderSecretClipboardConfirmModal())
+	case m.showSecretCreateModal:
+		modalView = m.styles.Modal.Render(m.renderSecretCreateModal())
+	case m.showSecretUpdateModal:
+		modalView = m.styles.Modal.Render(m.renderSecretUpdateModal())
+	case m.showSecretValueModal:
+		modalView = m.styles.Modal.Render(m.renderSecretValueModal())
+	case m.showExportModal:
+		modalView = m.styles.Modal.Render(m.renderExportProfileModal())
+	case m.showImportModal:
+		modalView = m.styles.Modal.Render(m.renderImportProfileModal())
+	case m.showSingleExportModal:
+		modalView = m.styles.Modal.Render(m.renderSingleExportModal())
+	case m.showPeekModal:
+		modalView = m.styles.Modal.Render(m.renderPeekModal())
+	case m.showHelpModal:
+		modalView = m.renderHelpModal()
+	case m.showLogsModal:
+		modalView = m.styles.Modal.Render(m.renderLogsModal())
+	case m.showInspectionModal:
+		modalView = m.styles.Modal.Render(m.renderInspectionModal())
+	case m.showProfileModal:
+		modalView = m.styles.Modal.Render(m.renderProfileModal())
+	case m.showProfileDeleteConfirm:
+		modalView = m.styles.Modal.Render(m.renderProfileDeleteConfirmModal())
+	case m.showMultiDeleteConfirm:
+		modalView = m.styles.Modal.Render(m.renderMultiDeleteConfirmModal())
+	case m.showCommandPalette:
+		modalView = m.renderCommandPalette()
 	}
 
-	if m.showSqsConfirmDelete {
-		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
-			m.styles.Modal.Render(m.renderSqsConfirmDeleteModal()),
-		)
-	}
-
-	if m.showSqsPurgeAllConfirm {
-		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
-			m.styles.Modal.Render(m.renderSqsPurgeAllConfirmModal()),
-		)
-	}
-
-	if m.showSqsSubDeleteConfirm {
-		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
-			m.styles.Modal.Render(m.renderSqsSubDeleteConfirmModal()),
-		)
-	}
-
-	if m.showSnsPublishModal {
-		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
-			m.styles.Modal.Render(m.renderSnsPublishModal()),
-		)
-	}
-
-	if m.showS3CreateModal {
-		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
-			m.styles.Modal.Render(m.renderS3CreateBucketModal()),
-		)
-	}
-
-	if m.showS3CreateFolderModal {
-		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
-			m.styles.Modal.Render(m.renderS3CreateFolderModal()),
-		)
-	}
-
-	if m.showS3UploadModal {
-		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
-			m.styles.Modal.Render(m.renderS3UploadModal()),
-		)
-	}
-
-	if m.showS3PreviewModal {
-		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
-			m.styles.Modal.Render(m.renderS3PreviewModal()),
-		)
-	}
-
-	if m.showVersionsModal {
-		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
-			m.styles.Modal.Render(m.renderS3VersionsModal()),
-		)
-	}
-
-	if m.showSqsCreateModal {
-		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
-			m.styles.Modal.Render(m.renderSqsCreateQueueModal()),
-		)
-	}
-
-	if m.showSnsCreateTopicModal {
-		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
-			m.styles.Modal.Render(m.renderSnsCreateTopicModal()),
-		)
-	}
-
-	if m.showSnsSimpleSubModal {
-		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
-			m.styles.Modal.Render(m.renderSnsSimpleSubModal()),
-		)
-	}
-
-	if m.showSnsBatchSubModal {
-		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
-			m.styles.Modal.Render(m.renderSnsBatchSubModal()),
-		)
-	}
-
-	if m.showSnsYamlApplyConfirm {
-		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
-			m.styles.Modal.Render(m.renderSnsYamlApplyConfirmModal()),
-		)
-	}
-
-	if m.showSnsYamlImportModal {
-		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
-			m.styles.Modal.Render(m.renderSnsYamlImportModal()),
-		)
-	}
-
-	if m.showSqsBatchSubModal {
-		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
-			m.styles.Modal.Render(m.renderSqsBatchSubModal()),
-		)
-	}
-
-	if m.showSnsSubEditModal {
-		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
-			m.styles.Modal.Render(m.renderSnsEditSubModal()),
-		)
-	}
-
-	if m.showSnsConfirmDelete {
-		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
-			m.styles.Modal.Render(m.renderSnsConfirmDeleteModal()),
-		)
-	}
-
-	if m.showSecretDeleteConfirm {
-		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
-			m.styles.Modal.Render(m.renderSecretDeleteConfirmModal()),
-		)
-	}
-
-	if m.showSecretRestoreConfirm {
-		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
-			m.styles.Modal.Render(m.renderSecretRestoreConfirmModal()),
-		)
-	}
-
-	if m.showSecretPromoteConfirm {
-		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
-			m.styles.Modal.Render(m.renderSecretPromoteConfirmModal()),
-		)
-	}
-
-	if m.showSecretClipboardConfirm {
-		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
-			m.styles.Modal.Render(m.renderSecretClipboardConfirmModal()),
-		)
-	}
-
-	if m.showSecretCreateModal {
-		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
-			m.styles.Modal.Render(m.renderSecretCreateModal()),
-		)
-	}
-
-	if m.showSecretUpdateModal {
-		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
-			m.styles.Modal.Render(m.renderSecretUpdateModal()),
-		)
-	}
-
-	if m.showSecretValueModal {
-		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
-			m.styles.Modal.Render(m.renderSecretValueModal()),
-		)
-	}
-
-	if m.showExportModal {
-		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
-			m.styles.Modal.Render(m.renderExportProfileModal()),
-		)
-	}
-
-	if m.showImportModal {
-		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
-			m.styles.Modal.Render(m.renderImportProfileModal()),
-		)
-	}
-
-	if m.showSingleExportModal {
-		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
-			m.styles.Modal.Render(m.renderSingleExportModal()),
-		)
-	}
-
-	if m.showPeekModal {
-		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
-			m.styles.Modal.Render(m.renderPeekModal()),
-		)
-	}
-
-	if m.showHelpModal {
-		return m.renderHelpModal()
-	}
-
-	if m.showLogsModal {
-		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
-			m.styles.Modal.Render(m.renderLogsModal()),
-		)
-	}
-
-	if m.showInspectionModal {
-		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
-			m.styles.Modal.Render(m.renderInspectionModal()),
-		)
-	}
-
-	if m.showProfileModal {
-		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
-			m.styles.Modal.Render(m.renderProfileModal()),
-		)
-	}
-
-	if m.showProfileDeleteConfirm {
-		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
-			m.styles.Modal.Render(m.renderProfileDeleteConfirmModal()),
-		)
-	}
-
-	if m.showMultiDeleteConfirm {
-		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
-			m.styles.Modal.Render(m.renderMultiDeleteConfirmModal()),
-		)
-	}
-
-	if m.showCommandPalette {
-		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
-			m.renderCommandPalette(),
-		)
+	if modalView != "" {
+		modalWidth := lipgloss.Width(modalView)
+		modalHeight := lipgloss.Height(modalView)
+		startRow := (m.height - modalHeight) / 2
+		startCol := (m.width - modalWidth) / 2
+		if startRow < 0 {
+			startRow = 0
+		}
+		if startCol < 0 {
+			startCol = 0
+		}
+		view = overlayString(view, modalView, startRow, startCol)
 	}
 
 	return lipgloss.NewStyle().
@@ -316,7 +195,9 @@ func (m Model) renderHeader() string {
 		if m.config.ActiveProfile != "" {
 			prefix = "[" + m.config.ActiveProfile + "] "
 		}
-		profileInfo = fmt.Sprintf("%s%s %s%s ", prefix, m.config.ServiceName, m.config.Region, mockTag)
+
+		healthIcons := m.renderHealthDots()
+		profileInfo = fmt.Sprintf("%s%s %s%s %s", prefix, m.config.ServiceName, m.config.Region, mockTag, healthIcons)
 	}
 
 	statsStr := m.styles.InfoText.Render(profileInfo)
@@ -333,26 +214,46 @@ func (m Model) renderHeader() string {
 		statsStr,
 	)
 
-	if m.statusMsg != "" {
-		status := lipgloss.NewStyle().
-			Foreground(m.styles.InfoText.GetForeground()).
-			Width(m.width).
-			Render("  SUCCESS: " + m.statusMsg)
-		return headerLine + "\n" + status
-	}
-	if m.errorMsg != "" {
-		status := lipgloss.NewStyle().
-			Foreground(m.styles.ErrorBadge.GetBackground()).
-			Width(m.width).
-			Render("  ERROR: " + m.errorMsg)
-		return headerLine + "\n" + status
-	}
-
 	return headerLine
 }
 
+func (m Model) renderHealthDots() string {
+	if m.config == nil || m.config.UseMock {
+		return ""
+	}
+	okStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9ece6a"))
+	errStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#f7768e"))
+	dot := func(up bool) string {
+		if up {
+			return okStyle.Render("●")
+		}
+		return errStyle.Render("●")
+	}
+	services := m.config.EnabledServices
+	if len(services) == 0 {
+		services = domain.DefaultEnabledServices()
+	}
+	var parts []string
+	for _, svc := range services {
+		switch svc {
+		case domain.ServiceS3:
+			parts = append(parts, "S3:"+dot(m.serviceHealth.S3))
+		case domain.ServiceSQS:
+			parts = append(parts, "SQS:"+dot(m.serviceHealth.SQS))
+		case domain.ServiceSNS:
+			parts = append(parts, "SNS:"+dot(m.serviceHealth.SNS))
+		case domain.ServiceSecrets:
+			parts = append(parts, "SEC:"+dot(m.serviceHealth.Secrets))
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.Join(parts, " ")
+}
+
 func (m Model) renderHeaderBrand() string {
-	return m.styles.Header.Render(" " + renderBrandWordmark(true) + " ")
+	return m.styles.Header.Render(" " + m.renderBrandWordmark(true) + " ")
 }
 
 func (m Model) renderTabBar() string {
@@ -361,7 +262,7 @@ func (m Model) renderTabBar() string {
 	for i, panel := range visible {
 		tab := m.tabLabel(panel, i+1)
 		if m.activeTab == panel {
-			renderedTabs = append(renderedTabs, m.styles.ActiveTab.Render(tab))
+			renderedTabs = append(renderedTabs, m.activeTabStyle(panel).Render(tab))
 		} else {
 			renderedTabs = append(renderedTabs, m.styles.InactiveTab.Render(tab))
 		}
@@ -524,13 +425,8 @@ func (m Model) renderFooter() string {
 }
 
 func (m Model) footerItem(k, action string) string {
-	footerKey := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(ui.ColorAccent)).
-		Bold(true).
-		Render(k)
-	footerAction := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(ui.ColorFg)).
-		Render(action)
+	footerKey := m.styles.FooterKey.Render(k)
+	footerAction := m.styles.FooterAction.Render(action)
 	return footerKey + " " + footerAction
 }
 
@@ -540,4 +436,29 @@ func (m Model) mainPanelHeight() int {
 		height = 5
 	}
 	return height
+}
+
+func (m Model) activeTabStyle(panel activePanel) lipgloss.Style {
+	tc := m.themeColors()
+	var color string
+	switch panel {
+	case panelS3:
+		color = tc.Amber
+	case panelSQS:
+		color = tc.Indigo
+	case panelSNS:
+		color = tc.Rose
+	case panelSecrets:
+		color = tc.Emerald
+	case panelConfig:
+		color = tc.Accent
+	default:
+		color = tc.Stack
+	}
+	return lipgloss.NewStyle().
+		Background(lipgloss.Color(color)).
+		Foreground(lipgloss.Color(tc.Bg)).
+		Bold(true).
+		Padding(0, 1).
+		MarginRight(1)
 }

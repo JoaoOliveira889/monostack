@@ -123,6 +123,26 @@ func (uc *AWSUseCase) HealthCheck(ctx context.Context, cfg *domain.AWSConfig) er
 	return err
 }
 
+func (uc *AWSUseCase) HealthCheckAll(ctx context.Context, cfg *domain.AWSConfig) domain.ServiceHealth {
+	h := domain.ServiceHealth{}
+	if cfg.UseMock {
+		return domain.ServiceHealth{S3: true, SQS: true, SNS: true, Secrets: true}
+	}
+	if _, err := uc.s3.ListBuckets(ctx, cfg); err == nil {
+		h.S3 = true
+	}
+	if _, err := uc.sqs.ListQueues(ctx, cfg); err == nil {
+		h.SQS = true
+	}
+	if _, err := uc.sns.ListTopics(ctx, cfg); err == nil {
+		h.SNS = true
+	}
+	if _, err := uc.secrets.ListSecrets(ctx, cfg); err == nil {
+		h.Secrets = true
+	}
+	return h
+}
+
 func (uc *AWSUseCase) DeleteSQSQueue(ctx context.Context, cfg *domain.AWSConfig, queueURL string) error {
 	return uc.sqs.DeleteQueue(ctx, cfg, queueURL)
 }

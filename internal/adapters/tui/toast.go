@@ -1,10 +1,12 @@
 package tui
 
 import (
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/mattn/go-runewidth"
 )
 
 type ToastType int
@@ -23,10 +25,120 @@ type Toast struct {
 }
 
 const (
-	maxToasts      = 5
+	maxToasts      = 3
 	toastDuration  = 4 * time.Second
 	toastFadeDelay = 3 * time.Second
 )
+
+type lineCell struct {
+	r     rune
+	style string
+}
+
+func parseANSILine(s string) []lineCell {
+	var cells []lineCell
+	currentStyle := ""
+	runes := []rune(s)
+	n := len(runes)
+	for i := 0; i < n; {
+		if runes[i] == '\x1b' {
+			start := i
+			i++ // skip '\x1b'
+			if i < n && runes[i] == '[' {
+				i++ // skip '['
+				for i < n && !((runes[i] >= 'a' && runes[i] <= 'z') || (runes[i] >= 'A' && runes[i] <= 'Z')) {
+					i++
+				}
+				if i < n {
+					i++ // include the terminating letter
+				}
+			} else {
+				for i < n && runes[i] != 'm' && runes[i] != '\a' {
+					i++
+				}
+				if i < n {
+					i++
+				}
+			}
+			seq := string(runes[start:i])
+			if seq == "\x1b[0m" {
+				currentStyle = ""
+			} else {
+				currentStyle += seq
+			}
+			continue
+		}
+
+		r := runes[i]
+		w := runewidth.RuneWidth(r)
+		if w <= 0 {
+			i++
+			continue
+		}
+
+		cells = append(cells, lineCell{r: r, style: currentStyle})
+		for j := 1; j < w; j++ {
+			cells = append(cells, lineCell{r: 0, style: currentStyle})
+		}
+		i++
+	}
+	return cells
+}
+
+func rebuildANSILine(cells []lineCell) string {
+	var sb strings.Builder
+	lastStyle := ""
+	for _, cell := range cells {
+		if cell.style != lastStyle {
+			if lastStyle != "" {
+				sb.WriteString("\x1b[0m")
+			}
+			sb.WriteString(cell.style)
+			lastStyle = cell.style
+		}
+		if cell.r != 0 {
+			sb.WriteRune(cell.r)
+		}
+	}
+	if lastStyle != "" {
+		sb.WriteString("\x1b[0m")
+	}
+	return sb.String()
+}
+
+func overlayString(bg, fg string, startRow, startCol int) string {
+	bgLines := strings.Split(bg, "\n")
+	fgLines := strings.Split(fg, "\n")
+
+	for i, fgLine := range fgLines {
+		row := startRow + i
+		if row < 0 || row >= len(bgLines) {
+			continue
+		}
+
+		bgCells := parseANSILine(bgLines[row])
+		fgCells := parseANSILine(fgLine)
+
+		neededLen := startCol + len(fgCells)
+		if len(bgCells) < neededLen {
+			for len(bgCells) < neededLen {
+				bgCells = append(bgCells, lineCell{r: ' ', style: ""})
+			}
+		}
+
+		for j, fgCell := range fgCells {
+			targetIdx := startCol + j
+			if targetIdx >= 0 && targetIdx < len(bgCells) {
+				bgCells[targetIdx] = fgCell
+			}
+		}
+
+		bgLines[row] = rebuildANSILine(bgCells)
+	}
+
+	return strings.Join(bgLines, "\n")
+}
+
 
 func (m *Model) pushToast(msg string, t ToastType) {
 	now := time.Now()
@@ -71,7 +183,7 @@ func (m *Model) toastTickCmd() tea.Cmd {
 	})
 }
 
-func (m *Model) renderToasts(width int) string {
+func (m *Model) renderToasts() string {
 	if len(m.toasts) == 0 {
 		return ""
 	}
@@ -98,16 +210,20 @@ func (m *Model) renderToasts(width int) string {
 		}
 
 		var style lipgloss.Style
+		var prefix string
 		switch toast.Type {
 		case ToastSuccess:
 			style = m.styles.ToastSuccess
+			prefix = "✓ "
 		case ToastError:
 			style = m.styles.ToastError
+			prefix = "✗ "
 		case ToastInfo:
 			style = m.styles.ToastInfo
+			prefix = "ℹ "
 		}
 
-		text := style.Render(" " + toast.Message + " ")
+		text := style.Render(" " + prefix + toast.Message + " ")
 		if opacity < 1.0 {
 			text = lipgloss.NewStyle().
 				Faint(true).
@@ -121,9 +237,5 @@ func (m *Model) renderToasts(width int) string {
 		return ""
 	}
 
-	return lipgloss.NewStyle().
-		Width(width).
-		Align(lipgloss.Right).
-		Padding(0, 2).
-		Render(lipgloss.JoinVertical(lipgloss.Right, rendered...))
+	return lipgloss.JoinVertical(lipgloss.Right, rendered...)
 }

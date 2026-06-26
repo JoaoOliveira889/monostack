@@ -51,17 +51,13 @@ func NewFileConfigStore(fileName string) *FileConfigStore {
 	}
 }
 
+func NewFileConfigStoreFromPath(path string) *FileConfigStore {
+	return &FileConfigStore{filePath: path}
+}
+
 func (s *FileConfigStore) Load() (*domain.AWSConfig, error) {
 	if _, err := os.Stat(s.filePath); errors.Is(err, os.ErrNotExist) {
-		defaultConfig := &domain.AWSConfig{
-			ServiceName:     "MiniStack",
-			EndpointURL:     "http://localhost:4566",
-			Region:          "us-east-1",
-			UseMock:         false,
-			LeftPanelRatio:  DefaultPanelRatio,
-			EnabledServices: domain.DefaultEnabledServices(),
-			SnapshotPath:    "",
-		}
+		defaultConfig := s.defaultConfig()
 		_ = s.Save(defaultConfig)
 		return defaultConfig, nil
 	}
@@ -75,6 +71,8 @@ func (s *FileConfigStore) Load() (*domain.AWSConfig, error) {
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return nil, err
 	}
+
+	cfg = s.applyEnvOverrides(cfg)
 
 	cfg.LeftPanelRatio = NormalizePanelRatio(cfg.LeftPanelRatio)
 	cfg.PanelRatios = ClonePanelRatios(cfg.PanelRatios)
@@ -314,7 +312,38 @@ func (s *FileConfigStore) SaveProfile(name string, profileCfg *domain.AWSConfig)
 	cfg.LeftPanelRatio = NormalizePanelRatio(cfg.LeftPanelRatio)
 	cfg.PanelRatios = ClonePanelRatios(cfg.PanelRatios)
 	cfg.EnabledServices = domain.NormalizeEnabledServices(cfg.EnabledServices)
-	return s.Save(cfg)
+	return s.writeRaw(cfg)
+}
+
+func (s *FileConfigStore) defaultConfig() *domain.AWSConfig {
+	return &domain.AWSConfig{
+		ServiceName:     "MiniStack",
+		EndpointURL:     "http://localhost:4566",
+		Region:          "us-east-1",
+		UseMock:         false,
+		LeftPanelRatio:  DefaultPanelRatio,
+		EnabledServices: domain.DefaultEnabledServices(),
+		SnapshotPath:    "",
+	}
+}
+
+func (s *FileConfigStore) applyEnvOverrides(cfg domain.AWSConfig) domain.AWSConfig {
+	if v := os.Getenv("AWS_REGION"); v != "" && cfg.Region == "" {
+		cfg.Region = v
+	}
+	if v := os.Getenv("MONOSTACK_ACCESS_KEY"); v != "" {
+		cfg.AccessKeyID = v
+	}
+	if v := os.Getenv("MONOSTACK_SECRET_KEY"); v != "" {
+		cfg.SecretAccessKey = v
+	}
+	if v := os.Getenv("AWS_ACCESS_KEY_ID"); v != "" && cfg.AccessKeyID == "" {
+		cfg.AccessKeyID = v
+	}
+	if v := os.Getenv("AWS_SECRET_ACCESS_KEY"); v != "" && cfg.SecretAccessKey == "" {
+		cfg.SecretAccessKey = v
+	}
+	return cfg
 }
 
 func (s *FileConfigStore) DeleteProfile(name string) error {

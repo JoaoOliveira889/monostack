@@ -6,6 +6,14 @@ import (
 	"monostack/internal/pkg/ui"
 )
 
+func (m Model) brandMonoStyle() lipgloss.Style {
+	return m.styles.BrandMono
+}
+
+func (m Model) brandStackStyle() lipgloss.Style {
+	return m.styles.BrandStack
+}
+
 func (m *Model) renderSplash() string {
 	status := lipgloss.NewStyle().
 		Foreground(lipgloss.Color(ui.ColorStack)).
@@ -14,7 +22,7 @@ func (m *Model) renderSplash() string {
 	subtitle := m.styles.InfoText.Render("A dense AWS workspace, rendered lightly.")
 
 	body := lipgloss.JoinVertical(lipgloss.Center,
-		renderBrandWordmark(false),
+		m.renderBrandWordmark(false),
 		"",
 		mutedSplashText("  Terminal-first AWS control for dense daily workflows."),
 		"",
@@ -33,11 +41,10 @@ func mutedSplashText(text string) string {
 		Render(text)
 }
 
-func renderBrandWordmark(compact bool) string {
-	mono := ui.BrandMonoStyle
-	stack := ui.BrandStackStyle
-	subtle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(ui.ColorSubtle))
+func (m Model) renderBrandWordmark(compact bool) string {
+	mono := m.styles.BrandMono
+	stack := m.styles.BrandStack
+	subtle := m.styles.InfoText
 
 	if compact {
 		return lipgloss.JoinHorizontal(lipgloss.Bottom,

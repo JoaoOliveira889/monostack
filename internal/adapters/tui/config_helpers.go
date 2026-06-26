@@ -89,7 +89,7 @@ func (m *Model) finishConfigLoad() tea.Cmd {
 	m.syncSettingsInputsFromConfig()
 	m.settingsEditMode = false
 	m.ensureActiveTabVisible()
-	return m.reloadTabCmd()
+	return tea.Batch(m.reloadTabCmd(), m.healthCheckAllCmd())
 }
 
 func (m Model) panelEnabled(panel activePanel) bool {

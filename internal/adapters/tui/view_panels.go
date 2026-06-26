@@ -564,17 +564,17 @@ func (m Model) renderS3Panel() string {
 	height := m.mainPanelHeight()
 	innerHeight := height - 2
 
-	sortS3Objects(m.objects, m.s3PanelState.sortField, m.s3PanelState.sortAscending)
+	sortS3Objects(m.objects, m.s3PanelState.sort.Field(), m.s3PanelState.sort.Ascending())
 	sortArrow := " ↑"
-	if !m.s3PanelState.sortAscending {
+	if !m.s3PanelState.sort.Ascending() {
 		sortArrow = " ↓"
 	}
 	sortLabels := map[int]string{0: "name" + sortArrow, 1: "size" + sortArrow, 2: "date" + sortArrow}
 
 	var displayObjects []domain.S3Object
 	displayObjectIndex := m.selectedObjectIndex
-	if m.s3PanelState.filterActive && m.s3PanelState.filterQuery != "" {
-		displayObjects = filterObjects(m.objects, m.s3PanelState.filterQuery)
+	if m.s3PanelState.filter.IsActive() && m.s3PanelState.filter.Query() != "" {
+		displayObjects = filterObjects(m.objects, m.s3PanelState.filter.Query())
 		displayObjectIndex = 0
 		if m.selectedObjectIndex < len(m.objects) {
 			selKey := m.objects[m.selectedObjectIndex].Key
@@ -591,9 +591,9 @@ func (m Model) renderS3Panel() string {
 
 	var leftBuilder strings.Builder
 	leftBuilder.WriteString("\n")
-	if m.s3PanelState.filterActive && m.s3Focus == focusBuckets {
-		leftBuilder.WriteString("  " + m.s3PanelState.filterInput.View() + "\n")
-		if m.s3PanelState.filterQuery != "" {
+	if m.s3PanelState.filter.IsActive() && m.s3Focus == focusBuckets {
+		leftBuilder.WriteString("  " + m.s3PanelState.filter.Input().View() + "\n")
+		if m.s3PanelState.filter.Query() != "" {
 			leftBuilder.WriteString("  " + m.styles.InfoText.Render(fmt.Sprintf("[%d] of [%d]", len(m.buckets), len(m.buckets))) + "\n")
 		}
 		leftBuilder.WriteString("\n")
@@ -608,7 +608,7 @@ func (m Model) renderS3Panel() string {
 		) + "\n\n")
 
 		maxVisibleBuckets := innerHeight - 7
-		if m.s3PanelState.filterActive {
+		if m.s3PanelState.filter.IsActive() {
 			maxVisibleBuckets -= 3
 		}
 		if maxVisibleBuckets < 1 {
@@ -640,9 +640,9 @@ func (m Model) renderS3Panel() string {
 
 	var rightBuilder strings.Builder
 	rightBuilder.WriteString("\n")
-	if m.s3PanelState.filterActive && m.s3Focus == focusObjects {
-		rightBuilder.WriteString("  " + m.s3PanelState.filterInput.View() + "\n")
-		if m.s3PanelState.filterQuery != "" {
+	if m.s3PanelState.filter.IsActive() && m.s3Focus == focusObjects {
+		rightBuilder.WriteString("  " + m.s3PanelState.filter.Input().View() + "\n")
+		if m.s3PanelState.filter.Query() != "" {
 			rightBuilder.WriteString("  " + m.styles.InfoText.Render(fmt.Sprintf("[%d] of [%d]", len(displayObjects), len(m.objects))) + "\n")
 		}
 		rightBuilder.WriteString("\n")
@@ -669,7 +669,7 @@ func (m Model) renderS3Panel() string {
 		rightBuilder.WriteString(m.styles.InfoText.Render(truncateToWidth(strings.Repeat("—", rightWidth-8), rightWidth-4)) + "\n")
 
 		maxVisibleObjs := innerHeight - 7
-		if m.s3PanelState.filterActive {
+		if m.s3PanelState.filter.IsActive() {
 			maxVisibleObjs -= 3
 		}
 		if maxVisibleObjs < 1 {
@@ -833,17 +833,17 @@ func (m Model) renderSQSPanel() string {
 	height := m.mainPanelHeight()
 	innerHeight := height - 2
 
-	sortQueues(m.queues, m.sqsPanelState.sortField, m.sqsPanelState.sortAscending)
+	sortQueues(m.queues, m.sqsPanelState.sort.Field(), m.sqsPanelState.sort.Ascending())
 	sortArrow := " ↑"
-	if !m.sqsPanelState.sortAscending {
+	if !m.sqsPanelState.sort.Ascending() {
 		sortArrow = " ↓"
 	}
 	sortLabels := map[int]string{0: "name" + sortArrow, 1: "avail" + sortArrow, 2: "delay" + sortArrow, 3: "in-flight" + sortArrow}
 
 	var displayQueues []domain.SQSQueue
 	displayQueueIndex := m.selectedQueueIndex
-	if m.sqsPanelState.filterActive && m.sqsPanelState.filterQuery != "" {
-		displayQueues = filterQueues(m.queues, m.sqsPanelState.filterQuery)
+	if m.sqsPanelState.filter.IsActive() && m.sqsPanelState.filter.Query() != "" {
+		displayQueues = filterQueues(m.queues, m.sqsPanelState.filter.Query())
 		displayQueueIndex = 0
 		if m.selectedQueueIndex < len(m.queues) {
 			selName := m.queues[m.selectedQueueIndex].Name
@@ -860,9 +860,9 @@ func (m Model) renderSQSPanel() string {
 
 	var leftBuilder strings.Builder
 	leftBuilder.WriteString("\n")
-	if m.sqsPanelState.filterActive && m.sqsFocus == focusQueues {
-		leftBuilder.WriteString("  " + m.sqsPanelState.filterInput.View() + "\n")
-		if m.sqsPanelState.filterQuery != "" {
+	if m.sqsPanelState.filter.IsActive() && m.sqsFocus == focusQueues {
+		leftBuilder.WriteString("  " + m.sqsPanelState.filter.Input().View() + "\n")
+		if m.sqsPanelState.filter.Query() != "" {
 			leftBuilder.WriteString("  " + m.styles.InfoText.Render(fmt.Sprintf("[%d] of [%d]", len(displayQueues), len(m.queues))) + "\n")
 		}
 		leftBuilder.WriteString("\n")
@@ -887,10 +887,10 @@ func (m Model) renderSQSPanel() string {
 		if totalDelayed > 0 {
 			leftBuilder.WriteString("  " + m.renderPillRows(leftWidth-4, m.renderMutedPill(fmt.Sprintf("Delayed %d", totalDelayed))) + "\n")
 		}
-		leftBuilder.WriteString("  " + m.styles.InfoText.Render("Sort: "+sortLabels[m.sqsPanelState.sortField]) + "\n\n")
+		leftBuilder.WriteString("  " + m.styles.InfoText.Render("Sort: "+sortLabels[m.sqsPanelState.sort.Field()]) + "\n\n")
 
 		maxVisibleQueues := innerHeight - 7
-		if m.sqsPanelState.filterActive {
+		if m.sqsPanelState.filter.IsActive() {
 			maxVisibleQueues -= 3
 		}
 		if maxVisibleQueues < 1 {
@@ -920,10 +920,10 @@ func (m Model) renderSQSPanel() string {
 
 	var rightBuilder strings.Builder
 	rightBuilder.WriteString("\n")
-	if m.sqsPanelState.filterActive && m.sqsFocus == focusQueueSubs {
-		rightBuilder.WriteString("  " + m.sqsPanelState.filterInput.View() + "\n")
-		if m.sqsPanelState.filterQuery != "" {
-			rightBuilder.WriteString("  " + m.styles.InfoText.Render(fmt.Sprintf("Filter: %q", m.sqsPanelState.filterQuery)) + "\n")
+	if m.sqsPanelState.filter.IsActive() && m.sqsFocus == focusQueueSubs {
+		rightBuilder.WriteString("  " + m.sqsPanelState.filter.Input().View() + "\n")
+		if m.sqsPanelState.filter.Query() != "" {
+			rightBuilder.WriteString("  " + m.styles.InfoText.Render(fmt.Sprintf("Filter: %q", m.sqsPanelState.filter.Query())) + "\n")
 		}
 		rightBuilder.WriteString("\n")
 	}
@@ -945,7 +945,7 @@ func (m Model) renderSQSPanel() string {
 		} else {
 			rightBuilder.WriteString(m.renderSectionCaption("Incoming Topic Routes") + "\n")
 			maxVisibleSubs := innerHeight - 8
-			if m.sqsPanelState.filterActive {
+			if m.sqsPanelState.filter.IsActive() {
 				maxVisibleSubs -= 3
 			}
 			if maxVisibleSubs < 1 {
@@ -989,16 +989,16 @@ func (m Model) renderSNSPanel() string {
 	height := m.mainPanelHeight()
 	innerHeight := height - 2
 
-	sortTopics(m.topics, m.snsPanelState.sortField, m.snsPanelState.sortAscending)
+	sortTopics(m.topics, m.snsPanelState.sort.Field(), m.snsPanelState.sort.Ascending())
 	sortArrow := " ↑"
-	if !m.snsPanelState.sortAscending {
+	if !m.snsPanelState.sort.Ascending() {
 		sortArrow = " ↓"
 	}
 
 	var displayTopics []domain.SNSTopic
 	displayTopicIndex := m.selectedTopicIndex
-	if m.snsPanelState.filterActive && m.snsPanelState.filterQuery != "" {
-		displayTopics = filterTopics(m.topics, m.snsPanelState.filterQuery)
+	if m.snsPanelState.filter.IsActive() && m.snsPanelState.filter.Query() != "" {
+		displayTopics = filterTopics(m.topics, m.snsPanelState.filter.Query())
 		displayTopicIndex = 0
 		if m.selectedTopicIndex < len(m.topics) {
 			selName := m.topics[m.selectedTopicIndex].Name
@@ -1015,8 +1015,8 @@ func (m Model) renderSNSPanel() string {
 
 	var displaySubs []domain.SNSSubscription
 	displaySubIndex := m.selectedSubIndex
-	if m.snsPanelState.filterActive && m.snsPanelState.filterQuery != "" {
-		displaySubs = filterSubscriptions(m.subscriptions, m.snsPanelState.filterQuery)
+	if m.snsPanelState.filter.IsActive() && m.snsPanelState.filter.Query() != "" {
+		displaySubs = filterSubscriptions(m.subscriptions, m.snsPanelState.filter.Query())
 		displaySubIndex = 0
 		if m.selectedSubIndex < len(m.subscriptions) {
 			selARN := m.subscriptions[m.selectedSubIndex].ARN
@@ -1033,9 +1033,9 @@ func (m Model) renderSNSPanel() string {
 
 	var leftBuilder strings.Builder
 	leftBuilder.WriteString("\n")
-	if m.snsPanelState.filterActive && m.snsSubFocus == focusTopics {
-		leftBuilder.WriteString("  " + m.snsPanelState.filterInput.View() + "\n")
-		if m.snsPanelState.filterQuery != "" {
+	if m.snsPanelState.filter.IsActive() && m.snsSubFocus == focusTopics {
+		leftBuilder.WriteString("  " + m.snsPanelState.filter.Input().View() + "\n")
+		if m.snsPanelState.filter.Query() != "" {
 			leftBuilder.WriteString("  " + m.styles.InfoText.Render(fmt.Sprintf("[%d] of [%d]", len(displayTopics), len(m.topics))) + "\n")
 		}
 		leftBuilder.WriteString("\n")
@@ -1049,7 +1049,7 @@ func (m Model) renderSNSPanel() string {
 		) + "\n")
 		leftBuilder.WriteString("  " + m.styles.InfoText.Render("Sort: name "+sortArrow) + "\n\n")
 		maxVisibleTopics := innerHeight - 7
-		if m.snsPanelState.filterActive {
+		if m.snsPanelState.filter.IsActive() {
 			maxVisibleTopics -= 3
 		}
 		if maxVisibleTopics < 1 {
@@ -1072,9 +1072,9 @@ func (m Model) renderSNSPanel() string {
 
 	var rightBuilder strings.Builder
 	rightBuilder.WriteString("\n")
-	if m.snsPanelState.filterActive && m.snsSubFocus == focusSubs {
-		rightBuilder.WriteString("  " + m.snsPanelState.filterInput.View() + "\n")
-		if m.snsPanelState.filterQuery != "" {
+	if m.snsPanelState.filter.IsActive() && m.snsSubFocus == focusSubs {
+		rightBuilder.WriteString("  " + m.snsPanelState.filter.Input().View() + "\n")
+		if m.snsPanelState.filter.Query() != "" {
 			rightBuilder.WriteString("  " + m.styles.InfoText.Render(fmt.Sprintf("[%d] of [%d]", len(displaySubs), len(m.subscriptions))) + "\n")
 		}
 		rightBuilder.WriteString("\n")
@@ -1098,7 +1098,7 @@ func (m Model) renderSNSPanel() string {
 		} else {
 			rightBuilder.WriteString(m.renderSectionCaption("Routing Links") + "\n")
 			maxVisibleSubs := innerHeight - 9
-			if m.snsPanelState.filterActive {
+			if m.snsPanelState.filter.IsActive() {
 				maxVisibleSubs -= 3
 			}
 			if maxVisibleSubs < 1 {
@@ -1188,17 +1188,17 @@ func (m Model) renderSecretsPanel() string {
 	height := m.mainPanelHeight()
 	innerHeight := height - 2
 
-	sortSecrets(m.secrets, m.secretsPanelState.sortField, m.secretsPanelState.sortAscending)
+	sortSecrets(m.secrets, m.secretsPanelState.sort.Field(), m.secretsPanelState.sort.Ascending())
 	sortArrow := " ↑"
-	if !m.secretsPanelState.sortAscending {
+	if !m.secretsPanelState.sort.Ascending() {
 		sortArrow = " ↓"
 	}
 	sortLabels := map[int]string{0: "name" + sortArrow, 1: "date" + sortArrow}
 
 	var displaySecrets []domain.Secret
 	displaySecretIndex := m.selectedSecretIndex
-	if m.secretsPanelState.filterActive && m.secretsPanelState.filterQuery != "" {
-		displaySecrets = filterSecrets(m.secrets, m.secretsPanelState.filterQuery)
+	if m.secretsPanelState.filter.IsActive() && m.secretsPanelState.filter.Query() != "" {
+		displaySecrets = filterSecrets(m.secrets, m.secretsPanelState.filter.Query())
 		displaySecretIndex = 0
 		if m.selectedSecretIndex < len(m.secrets) {
 			selName := m.secrets[m.selectedSecretIndex].Name
@@ -1215,9 +1215,9 @@ func (m Model) renderSecretsPanel() string {
 
 	var leftBuilder strings.Builder
 	leftBuilder.WriteString("\n")
-	if m.secretsPanelState.filterActive && m.secretsFocus == focusSecrets {
-		leftBuilder.WriteString("  " + m.secretsPanelState.filterInput.View() + "\n")
-		if m.secretsPanelState.filterQuery != "" {
+	if m.secretsPanelState.filter.IsActive() && m.secretsFocus == focusSecrets {
+		leftBuilder.WriteString("  " + m.secretsPanelState.filter.Input().View() + "\n")
+		if m.secretsPanelState.filter.Query() != "" {
 			leftBuilder.WriteString("  " + m.styles.InfoText.Render(fmt.Sprintf("[%d] of [%d]", len(displaySecrets), len(m.secrets))) + "\n")
 		}
 		leftBuilder.WriteString("\n")
@@ -1229,10 +1229,10 @@ func (m Model) renderSecretsPanel() string {
 			m.renderMetricPill("Secrets", fmt.Sprintf("%d", len(m.secrets)), lipgloss.Color(ui.ColorMono)),
 			m.renderMetricPill("Versions", fmt.Sprintf("%d", len(m.secretVersions)), lipgloss.Color(ui.ColorStack)),
 		) + "\n")
-		leftBuilder.WriteString("  " + m.styles.InfoText.Render("Sort: "+sortLabels[m.secretsPanelState.sortField]) + "\n\n")
+		leftBuilder.WriteString("  " + m.styles.InfoText.Render("Sort: "+sortLabels[m.secretsPanelState.sort.Field()]) + "\n\n")
 
 		maxVisible := innerHeight - 7
-		if m.secretsPanelState.filterActive {
+		if m.secretsPanelState.filter.IsActive() {
 			maxVisible -= 3
 		}
 		if maxVisible < 1 {
@@ -1248,10 +1248,10 @@ func (m Model) renderSecretsPanel() string {
 
 	var rightBuilder strings.Builder
 	rightBuilder.WriteString("\n")
-	if m.secretsPanelState.filterActive && m.secretsFocus == focusSecretVersions {
-		rightBuilder.WriteString("  " + m.secretsPanelState.filterInput.View() + "\n")
-		if m.secretsPanelState.filterQuery != "" {
-			rightBuilder.WriteString("  " + m.styles.InfoText.Render(fmt.Sprintf("Filter: %q", m.secretsPanelState.filterQuery)) + "\n")
+	if m.secretsPanelState.filter.IsActive() && m.secretsFocus == focusSecretVersions {
+		rightBuilder.WriteString("  " + m.secretsPanelState.filter.Input().View() + "\n")
+		if m.secretsPanelState.filter.Query() != "" {
+			rightBuilder.WriteString("  " + m.styles.InfoText.Render(fmt.Sprintf("Filter: %q", m.secretsPanelState.filter.Query())) + "\n")
 		}
 		rightBuilder.WriteString("\n")
 	}
@@ -1276,7 +1276,7 @@ func (m Model) renderSecretsPanel() string {
 		} else {
 			rightBuilder.WriteString(m.renderSectionCaption("Versions") + "\n")
 			maxVisible := innerHeight - 11
-			if m.secretsPanelState.filterActive {
+			if m.secretsPanelState.filter.IsActive() {
 				maxVisible -= 3
 			}
 			if maxVisible < 1 {
@@ -1864,8 +1864,11 @@ func (m Model) renderHelpModal() string {
 				{key: "p", action: "Profile switcher"},
 				{key: "? | ctrl+p", action: "Toggle help"},
 				{key: "o", action: "Command logs"},
-				{key: "space", action: "Start or extend selection"},
+				{key: "space", action: "Start selection"},
 				{key: "y", action: "Copy selected text"},
+				{key: "ctrl+y", action: "Copy resource ARN"},
+				{key: "/", action: "Filter list"},
+				{key: "T", action: "Toggle theme"},
 				{key: "esc", action: "Back or cancel"},
 				{key: "q", action: "Quit"},
 			},
@@ -1883,6 +1886,7 @@ func (m Model) renderHelpModal() string {
 				{key: "f", action: "Create folder"},
 				{key: "u", action: "Upload object"},
 				{key: "v", action: "Preview object"},
+				{key: "y", action: "Copy S3 path"},
 				{key: "b", action: "Open in browser"},
 				{key: "w", action: "Download object"},
 				{key: "d", action: "Delete object"},
@@ -2069,9 +2073,9 @@ func (m Model) renderHelpModal() string {
 	m.helpViewport.SetContent(body)
 
 	title := lipgloss.JoinHorizontal(lipgloss.Bottom,
-		renderBrandWordmark(true),
+		m.renderBrandWordmark(true),
 		" ",
-		ui.BrandStackStyle.Render("SHORTCUTS"),
+		m.styles.BrandStack.Render("SHORTCUTS"),
 	)
 
 	content := lipgloss.JoinVertical(lipgloss.Left,

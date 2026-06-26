@@ -1,6 +1,6 @@
 # Configuration
 
-Current release: [0.0.6](https://github.com/JoaoOliveira889/monostack)
+Current release: [0.0.9](https://github.com/JoaoOliveira889/monostack)
 
 ## Environment Variables
 

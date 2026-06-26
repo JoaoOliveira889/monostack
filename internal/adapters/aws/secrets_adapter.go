@@ -259,12 +259,10 @@ func (a *SecretsAdapter) UpdateSecretVersionStage(ctx context.Context, cfg *doma
 		return nil
 	}
 
-	awsCfg, err := GetSDKConfig(ctx, cfg)
+	client, err := a.cache.Secrets(ctx, cfg)
 	if err != nil {
-		return fmt.Errorf("failed to load AWS config: %w", err)
+		return fmt.Errorf("failed to get Secrets client: %w", err)
 	}
-
-	client := secretsmanager.NewFromConfig(awsCfg)
 	input := &secretsmanager.UpdateSecretVersionStageInput{
 		SecretId:        aws.String(secretID),
 		VersionStage:    aws.String(versionStage),
@@ -288,12 +286,10 @@ func (a *SecretsAdapter) DeleteSecret(ctx context.Context, cfg *domain.AWSConfig
 		return nil
 	}
 
-	awsCfg, err := GetSDKConfig(ctx, cfg)
+	client, err := a.cache.Secrets(ctx, cfg)
 	if err != nil {
-		return fmt.Errorf("failed to load AWS config: %w", err)
+		return fmt.Errorf("failed to get Secrets client: %w", err)
 	}
-
-	client := secretsmanager.NewFromConfig(awsCfg)
 	input := &secretsmanager.DeleteSecretInput{SecretId: aws.String(secretID)}
 	if forceDeleteWithoutRecovery {
 		input.ForceDeleteWithoutRecovery = aws.Bool(true)
@@ -315,12 +311,10 @@ func (a *SecretsAdapter) RestoreSecret(ctx context.Context, cfg *domain.AWSConfi
 		return nil
 	}
 
-	awsCfg, err := GetSDKConfig(ctx, cfg)
+	client, err := a.cache.Secrets(ctx, cfg)
 	if err != nil {
-		return fmt.Errorf("failed to load AWS config: %w", err)
+		return fmt.Errorf("failed to get Secrets client: %w", err)
 	}
-
-	client := secretsmanager.NewFromConfig(awsCfg)
 	err = retry.Do(ctx, retry.DefaultConfig, func() error {
 		_, innerErr := client.RestoreSecret(ctx, &secretsmanager.RestoreSecretInput{SecretId: aws.String(secretID)})
 		return innerErr

@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -76,6 +77,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m, m.finishConfigLoad()
+
+	case healthCheckAllMsg:
+		m.serviceHealth = msg.Health
+		return m, nil
 
 	case configSavedMsg:
 		m.config = msg.Config
@@ -569,7 +574,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		errStr := msg.Error.Error()
 		m.loading = false
 		m.appendCommandLog("error", m.currentResourceTarget(), errStr, msg.Error)
-		if strings.Contains(errStr, "connect: connection refused") || strings.Contains(errStr, "request send failed") || strings.Contains(errStr, "dial tcp") {
+		if isConnectivityError(msg.Error) {
 			endpoint := "localhost:4566"
 			if m.config != nil && m.config.EndpointURL != "" {
 				endpoint = m.config.EndpointURL
@@ -1456,8 +1461,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.selectedPeekIndex > 0 {
 					m.selectedPeekIndex--
 				}
-				return m, nil
-			}
+			return m, nil
+		}
 			if msg.String() == "x" || msg.String() == "X" {
 				if len(m.peekMessages) == 0 {
 					return m, nil
@@ -1869,6 +1874,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.toggleMultiSelectCmd()
 
 		case msg.String() == "y":
+			if m.activeTab == panelS3 && !m.selectionActive {
+				return m, m.copyS3PathCmd()
+			}
 			return m, m.copySelectedTextCmd()
 
 		case key.Matches(msg, keys.CopyARN):
@@ -2503,166 +2511,105 @@ func parseMessageAttributes(raw string) map[string]string {
 	return attrs
 }
 
-func (m *Model) isFilterActive() bool {
+func (m *Model) filterStateForPanel() *filterState {
 	switch m.activeTab {
 	case panelS3:
-		return m.s3PanelState.filterActive
+		return &m.s3PanelState.filter
 	case panelSQS:
-		return m.sqsPanelState.filterActive
+		return &m.sqsPanelState.filter
 	case panelSNS:
-		return m.snsPanelState.filterActive
+		return &m.snsPanelState.filter
 	case panelSecrets:
-		return m.secretsPanelState.filterActive
+		return &m.secretsPanelState.filter
+	}
+	return nil
+}
+
+func (m *Model) sortStateForPanel() *sortState {
+	switch m.activeTab {
+	case panelS3:
+		return &m.s3PanelState.sort
+	case panelSQS:
+		return &m.sqsPanelState.sort
+	case panelSNS:
+		return &m.snsPanelState.sort
+	case panelSecrets:
+		return &m.secretsPanelState.sort
+	}
+	return nil
+}
+
+func (m *Model) isFilterActive() bool {
+	if f := m.filterStateForPanel(); f != nil {
+		return f.IsActive()
 	}
 	return false
 }
 
 func (m *Model) activateFilter() {
-	switch m.activeTab {
-	case panelS3:
-		m.s3PanelState.filterActive = true
-		m.s3PanelState.filterInput.SetValue("")
-		m.s3PanelState.filterInput.Focus()
-	case panelSQS:
-		m.sqsPanelState.filterActive = true
-		m.sqsPanelState.filterInput.SetValue("")
-		m.sqsPanelState.filterInput.Focus()
-	case panelSNS:
-		m.snsPanelState.filterActive = true
-		m.snsPanelState.filterInput.SetValue("")
-		m.snsPanelState.filterInput.Focus()
-	case panelSecrets:
-		m.secretsPanelState.filterActive = true
-		m.secretsPanelState.filterInput.SetValue("")
-		m.secretsPanelState.filterInput.Focus()
+	if f := m.filterStateForPanel(); f != nil {
+		f.Activate()
 	}
 }
 
 func (m *Model) deactivateFilter() {
-	switch m.activeTab {
-	case panelS3:
-		m.s3PanelState.filterActive = false
-		m.s3PanelState.filterQuery = ""
-		m.s3PanelState.filterInput.Blur()
-		m.s3PanelState.filterInput.SetValue("")
-	case panelSQS:
-		m.sqsPanelState.filterActive = false
-		m.sqsPanelState.filterQuery = ""
-		m.sqsPanelState.filterInput.Blur()
-		m.sqsPanelState.filterInput.SetValue("")
-	case panelSNS:
-		m.snsPanelState.filterActive = false
-		m.snsPanelState.filterQuery = ""
-		m.snsPanelState.filterInput.Blur()
-		m.snsPanelState.filterInput.SetValue("")
-	case panelSecrets:
-		m.secretsPanelState.filterActive = false
-		m.secretsPanelState.filterQuery = ""
-		m.secretsPanelState.filterInput.Blur()
-		m.secretsPanelState.filterInput.SetValue("")
+	if f := m.filterStateForPanel(); f != nil {
+		f.Deactivate()
 	}
 }
 
 func (m *Model) commitFilter() {
-	switch m.activeTab {
-	case panelS3:
-		m.s3PanelState.filterQuery = m.s3PanelState.filterInput.Value()
-		m.s3PanelState.filterInput.Blur()
-	case panelSQS:
-		m.sqsPanelState.filterQuery = m.sqsPanelState.filterInput.Value()
-		m.sqsPanelState.filterInput.Blur()
-	case panelSNS:
-		m.snsPanelState.filterQuery = m.snsPanelState.filterInput.Value()
-		m.snsPanelState.filterInput.Blur()
-	case panelSecrets:
-		m.secretsPanelState.filterQuery = m.secretsPanelState.filterInput.Value()
-		m.secretsPanelState.filterInput.Blur()
+	if f := m.filterStateForPanel(); f != nil {
+		f.Commit()
 	}
 }
 
 func (m *Model) updateFilterInput(msg tea.KeyMsg) {
-	switch m.activeTab {
-	case panelS3:
-		m.s3PanelState.filterInput, _ = m.s3PanelState.filterInput.Update(msg)
-		m.s3PanelState.filterQuery = m.s3PanelState.filterInput.Value()
-	case panelSQS:
-		m.sqsPanelState.filterInput, _ = m.sqsPanelState.filterInput.Update(msg)
-		m.sqsPanelState.filterQuery = m.sqsPanelState.filterInput.Value()
-	case panelSNS:
-		m.snsPanelState.filterInput, _ = m.snsPanelState.filterInput.Update(msg)
-		m.snsPanelState.filterQuery = m.snsPanelState.filterInput.Value()
-	case panelSecrets:
-		m.secretsPanelState.filterInput, _ = m.secretsPanelState.filterInput.Update(msg)
-		m.secretsPanelState.filterQuery = m.secretsPanelState.filterInput.Value()
+	if f := m.filterStateForPanel(); f != nil {
+		f.Update(msg)
 	}
 }
 
 func (m *Model) cycleSort() tea.Cmd {
 	fieldNames := map[int]string{}
 	var maxField int
+	s := m.sortStateForPanel()
+	if s == nil {
+		return nil
+	}
 	switch m.activeTab {
 	case panelS3:
 		fieldNames = map[int]string{0: "name", 1: "size", 2: "date"}
 		maxField = 2
-		m.s3PanelState.sortField = (m.s3PanelState.sortField + 1) % (maxField + 1)
-		m.s3PanelState.sortAscending = !m.s3PanelState.sortAscending
-		if m.s3PanelState.sortField == 0 {
-			m.s3PanelState.sortAscending = true
-		}
 	case panelSQS:
 		fieldNames = map[int]string{0: "name", 1: "available", 2: "delayed", 3: "in-flight"}
 		maxField = 3
-		m.sqsPanelState.sortField = (m.sqsPanelState.sortField + 1) % (maxField + 1)
-		m.sqsPanelState.sortAscending = !m.sqsPanelState.sortAscending
-		if m.sqsPanelState.sortField == 0 {
-			m.sqsPanelState.sortAscending = true
-		}
 	case panelSNS:
 		fieldNames = map[int]string{0: "name"}
 		maxField = 0
-		m.snsPanelState.sortField = (m.snsPanelState.sortField + 1) % (maxField + 1)
-		m.snsPanelState.sortAscending = !m.snsPanelState.sortAscending
 	case panelSecrets:
 		fieldNames = map[int]string{0: "name", 1: "date"}
 		maxField = 1
-		m.secretsPanelState.sortField = (m.secretsPanelState.sortField + 1) % (maxField + 1)
-		m.secretsPanelState.sortAscending = !m.secretsPanelState.sortAscending
-		if m.secretsPanelState.sortField == 0 {
-			m.secretsPanelState.sortAscending = true
-		}
 	}
+	s.Cycle(maxField)
 	arrow := "↑"
-	if !m.currentSortAscending() {
+	if !s.Ascending() {
 		arrow = "↓"
 	}
-	name := fieldNames[m.currentSortField()]
+	name := fieldNames[s.Field()]
 	return m.setStatusMessage(fmt.Sprintf("Sorting by %s %s", name, arrow))
 }
 
 func (m *Model) currentSortField() int {
-	switch m.activeTab {
-	case panelS3:
-		return m.s3PanelState.sortField
-	case panelSQS:
-		return m.sqsPanelState.sortField
-	case panelSNS:
-		return m.snsPanelState.sortField
-	case panelSecrets:
-		return m.secretsPanelState.sortField
+	if s := m.sortStateForPanel(); s != nil {
+		return s.Field()
 	}
 	return 0
 }
 
 func (m *Model) currentSortAscending() bool {
-	switch m.activeTab {
-	case panelS3:
-		return m.s3PanelState.sortAscending
-	case panelSQS:
-		return m.sqsPanelState.sortAscending
-	case panelSNS:
-		return m.snsPanelState.sortAscending
-	case panelSecrets:
-		return m.secretsPanelState.sortAscending
+	if s := m.sortStateForPanel(); s != nil {
+		return s.Ascending()
 	}
 	return true
 }
@@ -2788,8 +2735,8 @@ func (m *Model) handleListClick(x, relY int) (tea.Model, tea.Cmd) {
 	switch m.activeTab {
 	case panelS3:
 		panelFocus = m.s3Focus
-		filterActive = m.s3PanelState.filterActive
-		filterHasQuery = m.s3PanelState.filterQuery != ""
+		filterActive = m.s3PanelState.filter.IsActive()
+		filterHasQuery = m.s3PanelState.filter.HasQuery()
 		if panelFocus == focusObjects && isRight {
 			dataLen = len(m.objects)
 			selectedIdx = m.selectedObjectIndex
@@ -2801,8 +2748,8 @@ func (m *Model) handleListClick(x, relY int) (tea.Model, tea.Cmd) {
 		}
 	case panelSQS:
 		panelFocus = m.sqsFocus
-		filterActive = m.sqsPanelState.filterActive
-		filterHasQuery = m.sqsPanelState.filterQuery != ""
+		filterActive = m.sqsPanelState.filter.IsActive()
+		filterHasQuery = m.sqsPanelState.filter.HasQuery()
 		if panelFocus == focusQueues && !isRight {
 			dataLen = len(m.queues)
 			selectedIdx = m.selectedQueueIndex
@@ -2814,8 +2761,8 @@ func (m *Model) handleListClick(x, relY int) (tea.Model, tea.Cmd) {
 		}
 	case panelSNS:
 		panelFocus = m.snsSubFocus
-		filterActive = m.snsPanelState.filterActive
-		filterHasQuery = m.snsPanelState.filterQuery != ""
+		filterActive = m.snsPanelState.filter.IsActive()
+		filterHasQuery = m.snsPanelState.filter.HasQuery()
 		if panelFocus == focusTopics && !isRight {
 			dataLen = len(m.topics)
 			selectedIdx = m.selectedTopicIndex
@@ -2827,8 +2774,8 @@ func (m *Model) handleListClick(x, relY int) (tea.Model, tea.Cmd) {
 		}
 	case panelSecrets:
 		panelFocus = m.secretsFocus
-		filterActive = m.secretsPanelState.filterActive
-		filterHasQuery = m.secretsPanelState.filterQuery != ""
+		filterActive = m.secretsPanelState.filter.IsActive()
+		filterHasQuery = m.secretsPanelState.filter.HasQuery()
 		if panelFocus == focusSecrets && !isRight {
 			dataLen = len(m.secrets)
 			selectedIdx = m.selectedSecretIndex
@@ -2912,4 +2859,17 @@ func (m *Model) handleListClick(x, relY int) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+func isConnectivityError(err error) bool {
+	var connErr *domain.ConnectionError
+	if errors.As(err, &connErr) {
+		return true
+	}
+	errStr := err.Error()
+	return strings.Contains(errStr, "connect: connection refused") ||
+		strings.Contains(errStr, "request send failed") ||
+		strings.Contains(errStr, "dial tcp") ||
+		strings.Contains(errStr, "no such host") ||
+		strings.Contains(errStr, "i/o timeout")
 }

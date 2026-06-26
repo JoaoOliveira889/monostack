@@ -139,22 +139,28 @@ func (m *Model) buildStyles(t ThemeColors) styles {
 			Bold(true),
 
 		ToastSuccess: lipgloss.NewStyle().
-			Background(lipgloss.Color(t.Success)).
-			Foreground(lipgloss.Color(t.Bg)).
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color(t.Success)).
+			Background(lipgloss.Color(t.Bg)).
+			Foreground(lipgloss.Color(t.Success)).
 			Bold(true).
-			Padding(0, 2),
+			Padding(0, 1),
 
 		ToastError: lipgloss.NewStyle().
-			Background(lipgloss.Color(t.Error)).
-			Foreground(lipgloss.Color(t.Bg)).
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color(t.Error)).
+			Background(lipgloss.Color(t.Bg)).
+			Foreground(lipgloss.Color(t.Error)).
 			Bold(true).
-			Padding(0, 2),
+			Padding(0, 1),
 
 		ToastInfo: lipgloss.NewStyle().
-			Background(lipgloss.Color(t.Cyan)).
-			Foreground(lipgloss.Color(t.Bg)).
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color(t.Cyan)).
+			Background(lipgloss.Color(t.Bg)).
+			Foreground(lipgloss.Color(t.Cyan)).
 			Bold(true).
-			Padding(0, 2),
+			Padding(0, 1),
 
 		Title: lipgloss.NewStyle().
 			Foreground(lipgloss.Color(t.Stack)).
@@ -235,6 +241,21 @@ func (m *Model) buildStyles(t ThemeColors) styles {
 
 		InfoText: lipgloss.NewStyle().
 			Foreground(lipgloss.Color(t.Subtle)),
+
+		BrandMono: lipgloss.NewStyle().
+			Foreground(lipgloss.Color(t.Mono)).
+			Bold(true),
+
+		BrandStack: lipgloss.NewStyle().
+			Foreground(lipgloss.Color(t.Stack)).
+			Bold(true),
+
+		FooterKey: lipgloss.NewStyle().
+			Foreground(lipgloss.Color(t.Accent)).
+			Bold(true),
+
+		FooterAction: lipgloss.NewStyle().
+			Foreground(lipgloss.Color(t.Fg)),
 	}
 }
 

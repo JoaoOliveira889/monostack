@@ -712,7 +712,7 @@ func normalizeSnapshotPath(path string) string {
 }
 
 func snsSubscriptionKey(topicARN, protocol, endpoint string) string {
-	return strings.Join([]string{topicARN, protocol, endpoint}, "|")
+	return domain.SNSSubscriptionKey(topicARN, protocol, endpoint)
 }
 
 func managedSubscriptionKey(topicARN, destinationARN, destinationType string, queueMap map[string]domain.SQSQueueSnapshot) string {

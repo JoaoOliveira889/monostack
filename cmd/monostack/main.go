@@ -16,13 +16,14 @@ import (
 )
 
 var (
-	version = "0.0.7"
+	version = "0.0.9"
 	commit  = "none"
 	date    = "unknown"
 )
 
 func main() {
 	showVersion := flag.Bool("version", false, "Show version information")
+	configPath := flag.String("config", "", "Path to configuration file (default: ~/.config/monostack/config.json)")
 	flag.Parse()
 
 	if *showVersion {
@@ -32,7 +33,12 @@ func main() {
 		return
 	}
 
-	cfgStore := configPkg.NewFileConfigStore("config.json")
+	var cfgStore *configPkg.FileConfigStore
+	if *configPath != "" {
+		cfgStore = configPkg.NewFileConfigStoreFromPath(*configPath)
+	} else {
+		cfgStore = configPkg.NewFileConfigStore("config.json")
+	}
 	subStore := configPkg.NewFileSubscriptionStore("subscriptions.json")
 	cfgUseCase := usecase.NewConfigUseCaseWithSubscriptions(cfgStore, subStore)
 

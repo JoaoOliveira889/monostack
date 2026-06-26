@@ -490,3 +490,24 @@ func (m Model) commandLogSelectionText(start, end int) string {
 	}
 	return strings.Join(lines, "\n")
 }
+
+func (m *Model) copyS3PathCmd() tea.Cmd {
+	var path string
+	bucket := m.selectedS3BucketName()
+	if bucket == "" {
+		return m.setStatusMessage("Nothing to copy")
+	}
+
+	if m.s3Focus == focusObjects && len(m.objects) > 0 && m.selectedObjectIndex < len(m.objects) {
+		path = fmt.Sprintf("s3://%s/%s", bucket, m.objects[m.selectedObjectIndex].Key)
+	} else {
+		path = fmt.Sprintf("s3://%s", bucket)
+	}
+
+	return func() tea.Msg {
+		if err := clipboard.WriteAll(path); err != nil {
+			return errMsg{Error: fmt.Errorf("clipboard unavailable: %w", err)}
+		}
+		return statusMsg{Message: "S3 path copied: " + path}
+	}
+}

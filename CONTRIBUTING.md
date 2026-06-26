@@ -24,7 +24,7 @@ First off, thank you for considering contributing to Monostack! It's people like
 ## Development Setup
 
 ### Prerequisites
-* [Go](https://golang.org/dl/) (version 1.21 or later)
+* [Go](https://golang.org/dl/) (version 1.23 or later)
 * A terminal emulator with ANSI color support.
 
 ### Building the Project

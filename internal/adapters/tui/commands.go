@@ -74,7 +74,7 @@ func normalizeSubscriptionScopeWithDefault(scope, defaultScope string) (string, 
 }
 
 func snsSubscriptionKey(topicARN, protocol, endpoint string) string {
-	return strings.Join([]string{topicARN, protocol, endpoint}, "|")
+	return domain.SNSSubscriptionKey(topicARN, protocol, endpoint)
 }
 
 func managedSubscriptionKey(topicARN, destinationARN, destinationType string, queueMap map[string]string) string {
@@ -233,6 +233,18 @@ func (m *Model) healthCheckCmd() tea.Cmd {
 			return healthCheckMsg{OK: false, Err: err.Error()}
 		}
 		return healthCheckMsg{OK: true}
+	}
+}
+
+func (m *Model) healthCheckAllCmd() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+		defer cancel()
+
+		if m.config == nil {
+			return healthCheckAllMsg{}
+		}
+		return healthCheckAllMsg{Health: m.awsUseCase.HealthCheckAll(ctx, m.config)}
 	}
 }
 

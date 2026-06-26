@@ -323,7 +323,8 @@ func TestOrderedSecretVersions_CurrentFirst(t *testing.T) {
 }
 
 func TestRenderBrandWordmark_CompactOmitsBracketMark(t *testing.T) {
-	wordmark := renderBrandWordmark(true)
+	m := mkModel()
+	wordmark := m.renderBrandWordmark(true)
 	if strings.Contains(wordmark, "[M]") {
 		t.Fatalf("expected compact brand wordmark to omit [M], got %q", wordmark)
 	}
